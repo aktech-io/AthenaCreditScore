@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerting_rules.yml"
+
+scrape_configs:
+  - job_name: athena-python-service
+    static_configs:
+      - targets: ["athena-python-service:8001"]
+    metrics_path: /metrics
+
+  - job_name: athena-java-service
+    static_configs:
+      - targets: ["athena-java-service:8080"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: mlflow
+    static_configs:
+      - targets: ["mlflow:5000"]
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres:9187"]  # postgres_exporter if deployed
+
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq:15692"]  # RabbitMQ prometheus plugin

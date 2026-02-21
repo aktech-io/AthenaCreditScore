@@ -1,0 +1,36 @@
+# Environment — never commit real secrets
+.env
+!.env.example
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+.mypy_cache/
+
+# Java / Maven
+athena-java-service/target/
+*.class
+*.jar
+!athena-java-service/src/
+
+# Node
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Build artefacts
+build.log
+mlflow/mlruns/
+monitoring/grafana/data/
+
+# IDE
+.idea/
+.vscode/
+*.iml

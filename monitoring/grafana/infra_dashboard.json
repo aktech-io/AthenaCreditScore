@@ -1,0 +1,558 @@
+{
+    "title": "Athena — Service Health & Infrastructure",
+    "uid": "athena-infra-v1",
+    "tags": [
+        "athena",
+        "infrastructure",
+        "jvm"
+    ],
+    "timezone": "Africa/Nairobi",
+    "refresh": "30s",
+    "time": {
+        "from": "now-3h",
+        "to": "now"
+    },
+    "schemaVersion": 38,
+    "panels": [
+        {
+            "type": "row",
+            "id": 1,
+            "title": "🟢 Java Service",
+            "gridPos": {
+                "x": 0,
+                "y": 0,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "id": 2,
+            "title": "HTTP Request Rate (req/s)",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 1,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "rate(http_server_requests_seconds_count{job=\"athena-java-service\"}[1m])",
+                    "legendFormat": "{{method}} {{uri}} {{status}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 3,
+            "title": "HTTP Latency p50/p90/p99 (ms)",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 1,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.50, rate(http_server_requests_seconds_bucket{job=\"athena-java-service\"}[1m])) * 1000",
+                    "legendFormat": "p50"
+                },
+                {
+                    "expr": "histogram_quantile(0.90, rate(http_server_requests_seconds_bucket{job=\"athena-java-service\"}[1m])) * 1000",
+                    "legendFormat": "p90"
+                },
+                {
+                    "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job=\"athena-java-service\"}[1m])) * 1000",
+                    "legendFormat": "p99"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "ms",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 4,
+            "title": "JVM Heap Used / Committed",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 9,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "jvm_memory_used_bytes{job=\"athena-java-service\",area=\"heap\"}",
+                    "legendFormat": "Heap Used"
+                },
+                {
+                    "expr": "jvm_memory_committed_bytes{job=\"athena-java-service\",area=\"heap\"}",
+                    "legendFormat": "Heap Committed"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 5,
+            "title": "JVM Threads",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 9,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "jvm_threads_states_threads{job=\"athena-java-service\"}",
+                    "legendFormat": "{{state}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 6,
+            "title": "DB Pool — Active / Idle Connections",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 17,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "hikaricp_connections_active{job=\"athena-java-service\"}",
+                    "legendFormat": "Active"
+                },
+                {
+                    "expr": "hikaricp_connections_idle{job=\"athena-java-service\"}",
+                    "legendFormat": "Idle"
+                },
+                {
+                    "expr": "hikaricp_connections_pending{job=\"athena-java-service\"}",
+                    "legendFormat": "Pending"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 7,
+            "title": "HTTP Error Rate (4xx/5xx)",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 17,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "rate(http_server_requests_seconds_count{job=\"athena-java-service\",status=~\"4..\"}[1m])",
+                    "legendFormat": "4xx errors"
+                },
+                {
+                    "expr": "rate(http_server_requests_seconds_count{job=\"athena-java-service\",status=~\"5..\"}[1m])",
+                    "legendFormat": "5xx errors"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "type": "row",
+            "id": 20,
+            "title": "🐍 Python AI/ML Service",
+            "gridPos": {
+                "x": 0,
+                "y": 25,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "id": 21,
+            "title": "Scoring Requests/sec (Champion vs Challenger)",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 26,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "rate(athena_scoring_requests_total[5m])",
+                    "legendFormat": "{{model_target}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 22,
+            "title": "Scoring Latency p50/p90/p99",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 26,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.50, rate(athena_scoring_latency_seconds_bucket[5m]))",
+                    "legendFormat": "p50"
+                },
+                {
+                    "expr": "histogram_quantile(0.90, rate(athena_scoring_latency_seconds_bucket[5m]))",
+                    "legendFormat": "p90"
+                },
+                {
+                    "expr": "histogram_quantile(0.99, rate(athena_scoring_latency_seconds_bucket[5m]))",
+                    "legendFormat": "p99"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 23,
+            "title": "30-Day Approval Rate",
+            "type": "gauge",
+            "gridPos": {
+                "x": 0,
+                "y": 34,
+                "w": 6,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "athena_approval_rate_30d",
+                    "legendFormat": "Approval Rate"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "min": 0,
+                    "max": 1,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 0.3
+                            },
+                            {
+                                "color": "green",
+                                "value": 0.5
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "id": 24,
+            "title": "30-Day Default Rate",
+            "type": "gauge",
+            "gridPos": {
+                "x": 6,
+                "y": 34,
+                "w": 6,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "athena_default_rate_30d",
+                    "legendFormat": "Default Rate"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "min": 0,
+                    "max": 0.5,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 0.1
+                            },
+                            {
+                                "color": "red",
+                                "value": 0.2
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "id": 25,
+            "title": "Open Disputes",
+            "type": "stat",
+            "gridPos": {
+                "x": 12,
+                "y": 34,
+                "w": 6,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "athena_open_disputes_count",
+                    "legendFormat": "Disputes"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 10
+                            },
+                            {
+                                "color": "red",
+                                "value": 20
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "id": 26,
+            "title": "KS Statistic (Model Discriminability)",
+            "type": "gauge",
+            "gridPos": {
+                "x": 18,
+                "y": 34,
+                "w": 6,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "athena_ks_statistic",
+                    "legendFormat": "KS"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "min": 0,
+                    "max": 1,
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "red",
+                                "value": null
+                            },
+                            {
+                                "color": "yellow",
+                                "value": 0.2
+                            },
+                            {
+                                "color": "green",
+                                "value": 0.4
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "type": "row",
+            "id": 40,
+            "title": "🐰 RabbitMQ",
+            "gridPos": {
+                "x": 0,
+                "y": 42,
+                "w": 24,
+                "h": 1
+            }
+        },
+        {
+            "id": 41,
+            "title": "Message Queue Depth",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 0,
+                "y": 43,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "rabbitmq_queue_messages{job=\"rabbitmq\"}",
+                    "legendFormat": "{{queue}}"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        },
+        {
+            "id": 42,
+            "title": "Message Publish/Deliver Rate",
+            "type": "timeseries",
+            "gridPos": {
+                "x": 12,
+                "y": 43,
+                "w": 12,
+                "h": 8
+            },
+            "datasource": {
+                "type": "prometheus",
+                "uid": "athena-prometheus"
+            },
+            "targets": [
+                {
+                    "expr": "rate(rabbitmq_channel_messages_published_total{job=\"rabbitmq\"}[1m])",
+                    "legendFormat": "Published/s"
+                },
+                {
+                    "expr": "rate(rabbitmq_channel_messages_delivered_total{job=\"rabbitmq\"}[1m])",
+                    "legendFormat": "Delivered/s"
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "short",
+                    "color": {
+                        "mode": "palette-classic"
+                    }
+                }
+            }
+        }
+    ]
+}

@@ -1,0 +1,41 @@
+{
+  "customer": {
+    "nationalId": "27005899",
+    "firstName": "Adira",
+    "lastName": "Denis",
+    "phone": "+254712345678",
+    "email": "adira@example.com"
+  },
+  "creditReport": {
+    "bureauName": "TransUnion",
+    "reportDate": "2025-03-01",
+    "bureauScore": 624,
+    "nonPerformingAccounts": [
+      {
+        "accountType": "SACCO",
+        "currentBalance": 8423.65,
+        "status": "NPA",
+        "dateReported": "2025-01-15"
+      },
+      {
+        "accountType": "SACCO",
+        "currentBalance": 7494.00,
+        "status": "NPA",
+        "dateReported": "2025-01-20"
+      }
+    ],
+    "performingAccountsWithDefault": [
+      {"accountType": "BANK_LOAN", "status": "SETTLED", "dateClosed": "2023-06-01"},
+      {"accountType": "BANK_LOAN", "status": "SETTLED", "dateClosed": "2022-11-10"},
+      {"accountType": "BANK_LOAN", "status": "SETTLED", "dateClosed": "2021-08-22"},
+      {"accountType": "MFBANK", "status": "SETTLED", "dateClosed": "2023-01-05"},
+      {"accountType": "MFBANK", "status": "SETTLED", "dateClosed": "2022-03-14"},
+      {"accountType": "BANK_LOAN", "status": "SETTLED", "dateClosed": "2021-02-28"}
+    ],
+    "performingAccounts": [
+      {"accountType": "BANK_SAVINGS", "status": "ACTIVE", "currentBalance": 12500.00}
+    ],
+    "enquiriesLast90Days": 0,
+    "creditApplicationsLast12Months": 2
+  }
+}
