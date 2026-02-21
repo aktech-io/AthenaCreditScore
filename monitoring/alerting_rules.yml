@@ -1,0 +1,62 @@
+groups:
+  - name: athena_model_drift
+    rules:
+      - alert: AthenaKSStatDrop
+        expr: athena_ks_statistic < 0.25
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Athena KS statistic dropped below 0.25"
+          description: "Current KS = {{ $value }}. Model may need retraining."
+
+      - alert: AthenaPSIHigh
+        expr: athena_psi_value > 0.2
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PSI alert: {{ $labels.feature_name }} PSI > 0.2"
+          description: "Feature drift detected: {{ $value }}. Review training distribution."
+
+  - name: athena_business
+    rules:
+      - alert: AthenaHighDefaultRate
+        expr: athena_default_rate_30d > 0.15
+        for: 6h
+        labels:
+          severity: critical
+        annotations:
+          summary: "30-day default rate exceeds 15%"
+          description: "Current rate = {{ $value | humanizePercentage }}. Immediate review required."
+
+      - alert: AthenaLowApprovalRate
+        expr: athena_approval_rate_30d < 0.30
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Approval rate dropped below 30%"
+          description: "Approval rate = {{ $value | humanizePercentage }}. Review cut-offs."
+
+  - name: athena_data_quality
+    rules:
+      - alert: AthenaHighMissingRate
+        expr: athena_data_missing_rate > 0.05
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "High missing data rate: {{ $labels.field_name }}"
+          description: "Missing rate = {{ $value | humanizePercentage }}. Check data pipeline."
+
+  - name: athena_service_health
+    rules:
+      - alert: AthenaHighScoringLatency
+        expr: histogram_quantile(0.95, rate(athena_scoring_latency_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 scoring latency > 5s"
+          description: "p95 = {{ $value }}s. LLM may be slow or overloaded."

@@ -1,0 +1,22 @@
+nohup: ignoring input
+
+> athena-client-portal@1.0.0 dev
+> vite --port 5174
+
+Port 5174 is in use, trying another one...
+Port 5175 is in use, trying another one...
+Port 5176 is in use, trying another one...
+Port 5177 is in use, trying another one...
+Port 5178 is in use, trying another one...
+Port 5179 is in use, trying another one...
+
+  VITE v5.4.21  ready in 109 ms
+
+  ➜  Local:   http://localhost:5180/
+  ➜  Network: use --host to expose
+6:58:37 PM [vite] http proxy error: /api/auth/customer/request-otp
+Error: connect ECONNREFUSED 127.0.0.1:8080
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+6:58:42 PM [vite] http proxy error: /api/auth/customer/verify-otp
+Error: connect ECONNREFUSED 127.0.0.1:8080
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
