@@ -3,12 +3,69 @@ _transform: true
 
 services:
   - name: athena-auth
-    url: http://athena-java-service:8080
+    url: http://user-service:8081
     routes:
       - name: auth-route
         paths:
           - /api/auth
         strip_path: false
+
+  - name: athena-user-admin
+    url: http://user-service:8081
+    routes:
+      - name: user-admin-route
+        paths:
+          - /api/v1/admin
+        strip_path: false
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: sub
+          claims_to_verify:
+            - exp
+
+  - name: athena-notifications
+    url: http://notification-service:8085
+    routes:
+      - name: notifications-route
+        paths:
+          - /api/v1/notifications
+        strip_path: false
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: sub
+          claims_to_verify:
+            - exp
+
+  - name: athena-customers
+    url: http://customer-service:8082
+    routes:
+      - name: customers-route
+        paths:
+          - /api/v1/customers
+          - /api/v1/disputes
+        strip_path: false
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: sub
+          claims_to_verify:
+            - exp
+
+  - name: athena-media
+    url: http://media-service:8083
+    routes:
+      - name: media-route
+        paths:
+          - /api/v1/media
+        strip_path: false
+    plugins:
+      - name: jwt
+        config:
+          key_claim_name: sub
+          claims_to_verify:
+            - exp
 
   - name: athena-credit-api
     url: http://athena-python-service:8001
@@ -29,12 +86,14 @@ services:
           minute: 100
           policy: local
 
-  - name: athena-crb-service
-    url: http://athena-java-service:8080
+  - name: athena-scoring-service
+    url: http://scoring-service:8080
     routes:
-      - name: crb-route
+      - name: scoring-route
         paths:
+          - /api/v1/credit
           - /api/v1/crb
+          - /api/v1/dashboard
         strip_path: false
     plugins:
       - name: jwt
@@ -57,7 +116,7 @@ services:
             - X-Api-Key
 
   - name: athena-thirdparty
-    url: http://athena-java-service:8080
+    url: http://scoring-service:8080
     routes:
       - name: thirdparty-route
         paths:
