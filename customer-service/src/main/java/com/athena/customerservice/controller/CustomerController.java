@@ -252,8 +252,8 @@ public class CustomerController {
     @PreAuthorize("hasAnyRole('ADMIN','ANALYST','VIEWER','CUSTOMER')")
     public ResponseEntity<Map<String, Object>> getDisputes(@PathVariable Long customerId) {
         var disputes = jdbcTemplate.queryForList(
-                "SELECT dispute_id as id, reason as description, status, " +
-                "CAST(created_at AS DATE) as filed_at, resolved_at " +
+                "SELECT dispute_id as id, COALESCE(disputed_field, reason) as field, " +
+                "reason as desc, status, CAST(created_at AS DATE) as filed " +
                 "FROM disputes WHERE customer_id = ? ORDER BY created_at DESC",
                 customerId);
         return ResponseEntity.ok(Map.of("customer_id", customerId, "disputes", disputes));
@@ -266,10 +266,21 @@ public class CustomerController {
             @PathVariable Long customerId,
             @RequestBody Map<String, String> body,
             Authentication auth) {
-        String disputeId = "DSP-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         String description = body.getOrDefault("description", "");
         String field = body.getOrDefault("disputed_field", "");
-        log.info("Dispute filed: customer={}, id={}", customerId, disputeId);
+        log.info("Dispute filed: customer={}, field={}", customerId, field);
+
+        // Persist dispute to DB
+        jdbcTemplate.update(
+                "INSERT INTO disputes (customer_id, reason, disputed_field, status) VALUES (?, ?, ?, 'OPEN')",
+                customerId, description, field.isEmpty() ? null : field);
+
+        // Fetch the newly created dispute_id
+        Long disputeDbId = jdbcTemplate.queryForObject(
+                "SELECT dispute_id FROM disputes WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1",
+                Long.class, customerId);
+        String disputeId = "DSP-" + (disputeDbId != null ? disputeDbId : UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+
         rabbitTemplate.convertAndSend("athena.exchange", "athena.notification.routingKey",
                 Map.of("type", "DISPUTE_FILED", "disputeId", disputeId,
                         "customerId", customerId, "field", field, "description", description,
@@ -304,6 +315,40 @@ public class CustomerController {
                 "consent_token", consentToken, "customer_id", customerId,
                 "partner_id", partnerId, "scope", scope,
                 "expires_at", LocalDateTime.now().plusYears(1).toString()));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // CONSENTS
+    // ──────────────────────────────────────────────────────────────
+
+    @GetMapping("/{customerId}/consents")
+    @Operation(summary = "List active consents for a customer")
+    @PreAuthorize("hasAnyRole('ADMIN','ANALYST','CUSTOMER')")
+    public ResponseEntity<java.util.List<Map<String, Object>>> getConsents(@PathVariable Long customerId) {
+        var consents = jdbcTemplate.queryForList(
+                "SELECT consent_id as id, CAST(partner_id AS VARCHAR) as name, " +
+                "scope, CAST(created_at AS DATE) as granted " +
+                "FROM consents WHERE customer_id = ? AND revoked = false " +
+                "ORDER BY created_at DESC",
+                customerId);
+        return ResponseEntity.ok(consents);
+    }
+
+    @DeleteMapping("/{customerId}/consents/{consentId}")
+    @Operation(summary = "Revoke a specific consent by consent_id")
+    @PreAuthorize("hasAnyRole('ADMIN','CUSTOMER')")
+    public ResponseEntity<Map<String, Object>> revokeConsent(
+            @PathVariable Long customerId,
+            @PathVariable Long consentId,
+            Authentication auth) {
+        int updated = jdbcTemplate.update(
+                "UPDATE consents SET revoked = true WHERE customer_id = ? AND consent_id = ?",
+                customerId, consentId);
+        log.info("[CONSENT] Revoked: customer={}, consentId={}, rows={}", customerId, consentId, updated);
+        return ResponseEntity.ok(Map.of(
+                "customer_id", customerId,
+                "consent_id", consentId,
+                "revoked", updated > 0));
     }
 
     // ──────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../services/api.js';
 import { Save, TrendingUp, TrendingDown, Minus, GitBranch } from 'lucide-react';
 
-const MOCK_COMPARE = {
+const FALLBACK_COMPARE = {
     champion: { version: 'v3', ks: 0.41, auc: 0.847 },
     challenger: { version: 'v4', ks: 0.44, auc: 0.853 },
     ks_improvement: 0.03,
@@ -21,10 +21,36 @@ export default function ModelConfigPage() {
     const { token } = useAuth();
     const [pct, setPct] = useState(15);
     const [saving, setSaving] = useState(false);
-    const [compare, setCompare] = useState(MOCK_COMPARE);
+    const [compare, setCompare] = useState(FALLBACK_COMPARE);
     const [saved, setSaved] = useState(false);
+    const [promoting, setPromoting] = useState(false);
 
-    const rec = REC_META[compare.recommendation];
+    useEffect(() => {
+        async function loadConfig() {
+            try {
+                const config = await api.getRoutingConfig(token);
+                if (config.challenger_traffic_pct !== undefined) {
+                    setPct(Math.round(config.challenger_traffic_pct * 100));
+                }
+            } catch (err) {
+                console.error('Failed to load routing config', err);
+            }
+        }
+
+        async function loadComparison() {
+            try {
+                const data = await api.compareModels(token);
+                if (data && data.champion) setCompare(data);
+            } catch (err) {
+                console.error('Failed to load model comparison', err);
+            }
+        }
+
+        loadConfig();
+        loadComparison();
+    }, [token]);
+
+    const rec = REC_META[compare.recommendation] || REC_META.keep_champion;
     const RecIcon = rec.icon;
 
     const handleSavePct = async () => {
@@ -36,6 +62,17 @@ export default function ModelConfigPage() {
         } catch {
             setSaved(true); setTimeout(() => setSaved(false), 3000);
         } finally { setSaving(false); }
+    };
+
+    const handlePromote = async () => {
+        setPromoting(true);
+        try {
+            await api.promoteChallenger(token);
+            const data = await api.compareModels(token);
+            if (data && data.champion) setCompare(data);
+        } catch (err) {
+            console.error('Failed to promote challenger', err);
+        } finally { setPromoting(false); }
     };
 
     return (
@@ -72,17 +109,14 @@ export default function ModelConfigPage() {
                     {/* Visual traffic bar */}
                     <div style={{ marginBottom: 20 }}>
                         <div style={{ height: 8, borderRadius: 4, background: 'var(--gray-700)', overflow: 'hidden' }}>
-                            <div style={{
-                                height: '100%', display: 'flex',
-                                transition: 'all 0.3s ease',
-                            }}>
+                            <div style={{ height: '100%', display: 'flex', transition: 'all 0.3s ease' }}>
                                 <div style={{ width: `${100 - pct}%`, background: 'var(--brand-500)' }} />
                                 <div style={{ flex: 1, background: 'var(--green-500)' }} />
                             </div>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--gray-500)', marginTop: 6 }}>
-                            <span style={{ color: 'var(--brand-400)' }}>■ Champion v3 ({100 - pct}%)</span>
-                            <span style={{ color: 'var(--green-400)' }}>■ Challenger v4 ({pct}%)</span>
+                            <span style={{ color: 'var(--brand-400)' }}>■ Champion {compare.champion?.version} ({100 - pct}%)</span>
+                            <span style={{ color: 'var(--green-400)' }}>■ Challenger {compare.challenger?.version} ({pct}%)</span>
                         </div>
                     </div>
 
@@ -104,12 +138,14 @@ export default function ModelConfigPage() {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
                         {[
                             {
-                                label: '🏆 Champion', version: compare.champion.version,
-                                ks: compare.champion.ks, auc: compare.champion.auc, color: 'var(--brand-500)'
+                                label: '🏆 Champion', version: compare.champion?.version,
+                                ks: compare.champion?.ks ?? 0, auc: compare.champion?.auc ?? 0,
+                                color: 'var(--brand-500)'
                             },
                             {
-                                label: '⚡ Challenger', version: compare.challenger.version,
-                                ks: compare.challenger.ks, auc: compare.challenger.auc, color: 'var(--green-500)'
+                                label: '⚡ Challenger', version: compare.challenger?.version,
+                                ks: compare.challenger?.ks ?? 0, auc: compare.challenger?.auc ?? 0,
+                                color: 'var(--green-500)'
                             },
                         ].map(({ label, version, ks, auc, color }) => (
                             <div key={label} style={{
@@ -119,11 +155,11 @@ export default function ModelConfigPage() {
                                 <div style={{ fontSize: '0.75rem', color, fontWeight: 700, marginBottom: 8 }}>{label} · {version}</div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                                     <span style={{ fontSize: '0.72rem', color: 'var(--gray-500)' }}>KS</span>
-                                    <span style={{ fontWeight: 700, color: 'white' }}>{ks.toFixed(3)}</span>
+                                    <span style={{ fontWeight: 700, color: 'white' }}>{Number(ks).toFixed(3)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                     <span style={{ fontSize: '0.72rem', color: 'var(--gray-500)' }}>AUC</span>
-                                    <span style={{ fontWeight: 700, color: 'white' }}>{auc.toFixed(3)}</span>
+                                    <span style={{ fontWeight: 700, color: 'white' }}>{Number(auc).toFixed(3)}</span>
                                 </div>
                             </div>
                         ))}
@@ -142,14 +178,21 @@ export default function ModelConfigPage() {
                         <div>
                             <div style={{ fontWeight: 700, fontSize: '0.875rem', color: rec.color }}>{rec.label}</div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--gray-500)' }}>
-                                KS +{(compare.ks_improvement * 100).toFixed(1)}pts · AUC +{(compare.auc_improvement * 100).toFixed(2)}pts
+                                KS {compare.ks_improvement >= 0 ? '+' : ''}{(Number(compare.ks_improvement) * 100).toFixed(1)}pts
+                                · AUC {compare.auc_improvement >= 0 ? '+' : ''}{(Number(compare.auc_improvement) * 100).toFixed(2)}pts
                             </div>
                         </div>
                     </div>
 
                     {compare.recommendation === 'promote_challenger' && (
-                        <button className="btn btn-primary w-full" style={{ justifyContent: 'center' }}>
-                            <TrendingUp size={15} /> Promote Challenger → Champion
+                        <button
+                            className="btn btn-primary w-full"
+                            style={{ justifyContent: 'center' }}
+                            onClick={handlePromote}
+                            disabled={promoting}
+                        >
+                            <TrendingUp size={15} />
+                            {promoting ? 'Promoting…' : 'Promote Challenger → Champion'}
                         </button>
                     )}
                 </div>

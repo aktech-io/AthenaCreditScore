@@ -134,6 +134,11 @@ public class CustomerProfileController {
 
                 log.info("Dispute filed: customer={}, id={}, field={}", customerId, disputeId, field);
 
+                // Persist to DB
+                jdbcTemplate.update(
+                                "INSERT INTO disputes (customer_id, reason, status) VALUES (?, ?, 'OPEN')",
+                                customerId, description.isEmpty() ? field : description);
+
                 // Publish to notification queue — will trigger email to compliance team
                 rabbitTemplate.convertAndSend(
                                 "athena.exchange",
@@ -160,13 +165,46 @@ public class CustomerProfileController {
         @GetMapping("/{customerId}/disputes")
         @Operation(summary = "List all disputes for a customer")
         @PreAuthorize("hasAnyRole('ADMIN','ANALYST','VIEWER','CUSTOMER')")
-        public ResponseEntity<Map<String, Object>> getDisputes(@PathVariable Long customerId) {
+        public ResponseEntity<java.util.List<Map<String, Object>>> getDisputes(@PathVariable Long customerId) {
                 var disputes = jdbcTemplate.queryForList(
-                                "SELECT dispute_id as id, reason as description, status, " +
-                                                "CAST(created_at AS DATE) as filed_at, resolved_at " +
+                                "SELECT dispute_id as id, reason as field, reason as desc, status, " +
+                                                "CAST(created_at AS DATE) as filed " +
                                                 "FROM disputes WHERE customer_id = ? ORDER BY created_at DESC",
                                 customerId);
-                return ResponseEntity.ok(Map.of("customer_id", customerId, "disputes", disputes));
+                return ResponseEntity.ok(disputes);
+        }
+
+        // ── GET consents ──────────────────────────────────────────────────────────
+
+        @GetMapping("/{customerId}/consents")
+        @Operation(summary = "List active consents for a customer")
+        @PreAuthorize("hasAnyRole('ADMIN','CUSTOMER')")
+        public ResponseEntity<java.util.List<Map<String, Object>>> getConsents(@PathVariable Long customerId) {
+                var consents = jdbcTemplate.queryForList(
+                                "SELECT consent_id as id, CAST(partner_id AS VARCHAR) as name, " +
+                                                "scope, CAST(created_at AS DATE) as granted " +
+                                                "FROM consents WHERE customer_id = ? AND revoked = false " +
+                                                "ORDER BY created_at DESC",
+                                customerId);
+                return ResponseEntity.ok(consents);
+        }
+
+        // ── DELETE revoke consent ─────────────────────────────────────────────────
+
+        @DeleteMapping("/{customerId}/consents/{consentId}")
+        @Operation(summary = "Revoke a specific consent by consent_id")
+        @PreAuthorize("hasAnyRole('ADMIN','CUSTOMER')")
+        public ResponseEntity<Map<String, Object>> revokeConsent(
+                        @PathVariable Long customerId,
+                        @PathVariable Long consentId) {
+                int updated = jdbcTemplate.update(
+                                "UPDATE consents SET revoked = true WHERE customer_id = ? AND consent_id = ?",
+                                customerId, consentId);
+                log.info("Consent revoked: customer={}, consentId={}, rows={}", customerId, consentId, updated);
+                return ResponseEntity.ok(Map.of(
+                                "customer_id", customerId,
+                                "consent_id", consentId,
+                                "revoked", updated > 0));
         }
 
         // ── PUT grant consent ─────────────────────────────────────────────────────

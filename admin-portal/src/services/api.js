@@ -49,6 +49,14 @@ export const api = {
     compareModels: (token) =>
         request('/v1/models/compare', {}, token),
 
+    // Promote challenger to champion
+    promoteChallenger: (token) =>
+        request('/v1/models/promote', { method: 'PUT' }, token),
+
+    // Score history
+    getCreditScoreHistory: (id, token) =>
+        request(`/v1/credit/score/${id}/history`, {}, token),
+
     // Audit log
     getAuditLog: (token, page = 0) =>
         request(`/v1/audit?page=${page}&size=50`, {}, token),

@@ -94,6 +94,8 @@ services:
           - /api/v1/credit
           - /api/v1/crb
           - /api/v1/dashboard
+          - /api/v1/audit
+          - /api/v1/models
         strip_path: false
     plugins:
       - name: jwt

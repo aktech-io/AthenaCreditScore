@@ -49,7 +49,7 @@ public class DisputeController {
     @Operation(summary = "Update dispute status")
     @PreAuthorize("hasAnyRole('ADMIN','ANALYST')")
     public ResponseEntity<Void> updateDispute(
-            @PathVariable String id,
+            @PathVariable Long id,
             @RequestBody Map<String, String> body) {
         String status = body.get("status");
         if (status != null) {

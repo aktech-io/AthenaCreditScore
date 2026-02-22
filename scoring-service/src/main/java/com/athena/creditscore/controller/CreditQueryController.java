@@ -47,14 +47,72 @@ public class CreditQueryController {
                         @PathVariable Long customerId,
                         @RequestHeader("Authorization") String jwtToken) {
                 log.info("Fetching credit score: customer={}", customerId);
-                Map<String, Object> result = webClientBuilder.build()
-                                .get()
-                                .uri(scoringEngineUrl + "/api/v1/credit-score/" + customerId)
-                                .header("Authorization", jwtToken)
-                                .retrieve()
-                                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                                .block();
-                return ResponseEntity.ok(result != null ? result : Map.of());
+
+                // 1. Try Python service
+                Map<String, Object> pythonResult = null;
+                try {
+                        pythonResult = webClientBuilder.build()
+                                        .get()
+                                        .uri(scoringEngineUrl + "/api/v1/credit-score/" + customerId)
+                                        .header("Authorization", jwtToken)
+                                        .retrieve()
+                                        .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                                        .block();
+                } catch (Exception e) {
+                        log.warn("Python score unavailable for customer={}: {}", customerId, e.getMessage());
+                }
+
+                // 2. Query DB for enrichment (base_score, crb_contribution, llm_adjustment, breakdown)
+                Map<String, Object> result = new java.util.LinkedHashMap<>();
+                if (pythonResult != null) result.putAll(pythonResult);
+                try {
+                        String sql = "SELECT cse.base_score, cse.crb_contribution, cse.llm_adjustment, " +
+                                        "cse.final_score, cse.score_band, cse.pd_probability, cse.scored_at, " +
+                                        "bsb.income_stability_score, bsb.savings_rate_score, " +
+                                        "bsb.low_balance_score, bsb.transaction_diversity, bsb.base_total " +
+                                        "FROM credit_score_events cse " +
+                                        "LEFT JOIN base_score_breakdowns bsb ON bsb.score_event_id = cse.event_id " +
+                                        "WHERE cse.customer_id = ? ORDER BY cse.scored_at DESC LIMIT 1";
+                        var rows = jdbcTemplate.queryForList(sql, customerId);
+                        if (!rows.isEmpty()) {
+                                var row = rows.get(0);
+                                result.put("base_score", row.get("base_score"));
+                                result.put("crb_contribution", row.get("crb_contribution"));
+                                result.put("llm_adjustment", row.get("llm_adjustment"));
+                                if (pythonResult == null) {
+                                        result.put("customer_id", customerId);
+                                        result.put("final_score", row.get("final_score"));
+                                        result.put("score_band", row.get("score_band"));
+                                        result.put("pd_probability", row.get("pd_probability"));
+                                        result.put("scored_at",
+                                                        row.get("scored_at") != null ? row.get("scored_at").toString() : null);
+                                }
+                                double base = toDouble(row.get("base_total"));
+                                double incStab = toDouble(row.get("income_stability_score"));
+                                double savRate = toDouble(row.get("savings_rate_score"));
+                                double lowBal = toDouble(row.get("low_balance_score"));
+                                double txDiv = toDouble(row.get("transaction_diversity"));
+                                double incLevel = Math.max(0, Math.min(100, base - incStab - savRate - lowBal - txDiv));
+                                Map<String, Object> breakdown = new java.util.LinkedHashMap<>();
+                                breakdown.put("income_stability_score", incStab);
+                                breakdown.put("income_level_score", incLevel);
+                                breakdown.put("savings_rate_score", savRate);
+                                breakdown.put("low_balance_score", lowBal);
+                                breakdown.put("transaction_diversity", txDiv);
+                                result.put("score_breakdown", breakdown);
+                        }
+                } catch (Exception e) {
+                        log.warn("DB score enrichment failed for customer={}: {}", customerId, e.getMessage());
+                }
+
+                if (result.isEmpty()) result.put("customer_id", customerId);
+                return ResponseEntity.ok(result);
+        }
+
+        private double toDouble(Object val) {
+                if (val == null) return 0.0;
+                if (val instanceof Number) return ((Number) val).doubleValue();
+                try { return Double.parseDouble(val.toString()); } catch (Exception e) { return 0.0; }
         }
 
         // ── GET full report ───────────────────────────────────────────────────────
