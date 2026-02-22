@@ -167,8 +167,8 @@ public class CustomerProfileController {
         @PreAuthorize("hasAnyRole('ADMIN','ANALYST','VIEWER','CUSTOMER')")
         public ResponseEntity<java.util.List<Map<String, Object>>> getDisputes(@PathVariable Long customerId) {
                 var disputes = jdbcTemplate.queryForList(
-                                "SELECT dispute_id as id, reason as field, reason as desc, status, " +
-                                                "CAST(created_at AS DATE) as filed " +
+                                "SELECT dispute_id as id, COALESCE(disputed_field, reason) as field, " +
+                                                "reason as desc, status, CAST(created_at AS DATE) as filed " +
                                                 "FROM disputes WHERE customer_id = ? ORDER BY created_at DESC",
                                 customerId);
                 return ResponseEntity.ok(disputes);
@@ -181,7 +181,19 @@ public class CustomerProfileController {
         @PreAuthorize("hasAnyRole('ADMIN','CUSTOMER')")
         public ResponseEntity<java.util.List<Map<String, Object>>> getConsents(@PathVariable Long customerId) {
                 var consents = jdbcTemplate.queryForList(
-                                "SELECT consent_id as id, CAST(partner_id AS VARCHAR) as name, " +
+                                "SELECT consent_id as id, " +
+                                                "CASE partner_id " +
+                                                "  WHEN 1178866990 THEN 'KCB Bank' " +
+                                                "  WHEN 492889783  THEN 'Equity Bank' " +
+                                                "  WHEN 1069688314 THEN 'Co-operative Bank' " +
+                                                "  WHEN 723158978  THEN 'Safaricom M-Pesa' " +
+                                                "  WHEN 327945913  THEN 'Standard Chartered' " +
+                                                "  WHEN 1894859336 THEN 'NCBA Bank' " +
+                                                "  WHEN 1188602069 THEN 'Absa Kenya' " +
+                                                "  WHEN 1709023242 THEN 'DTB Bank' " +
+                                                "  WHEN 1558763374 THEN 'Stanbic Bank' " +
+                                                "  WHEN 609826168  THEN 'Family Bank' " +
+                                                "  ELSE CAST(partner_id AS VARCHAR) END as name, " +
                                                 "scope, CAST(created_at AS DATE) as granted " +
                                                 "FROM consents WHERE customer_id = ? AND revoked = false " +
                                                 "ORDER BY created_at DESC",
