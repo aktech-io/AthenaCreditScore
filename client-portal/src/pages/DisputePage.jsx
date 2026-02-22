@@ -1,38 +1,65 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, CheckCircle, Clock, XCircle, Plus, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../services/api.js';
-
-const MOCK_DISPUTES = [
-    { id: 'DSP-A1B2', field: 'npa_count', desc: 'NPA from 2019 loan that was fully repaid', status: 'OPEN', filed: '2026-02-15' },
-];
 
 const STATUS = {
     OPEN: { cls: 'badge-yellow', icon: Clock },
     RESOLVED: { cls: 'badge-green', icon: CheckCircle },
     CLOSED: { cls: 'badge-gray', icon: XCircle },
+    UNDER_REVIEW: { cls: 'badge-blue', icon: AlertCircle },
 };
+
+function normalise(d) {
+    return {
+        id: d.id || d.dispute_id || `DSP-${Date.now()}`,
+        field: d.field || d.disputed_field || '',
+        desc: d.desc || d.description || d.reason || '',
+        status: d.status || 'OPEN',
+        filed: d.filed || d.filed_at || (d.created_at ? String(d.created_at).slice(0, 10) : ''),
+    };
+}
 
 export default function DisputePage() {
     const { token, user } = useAuth();
-    const [disputes, setDisputes] = useState(MOCK_DISPUTES);
+    const [disputes, setDisputes] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState({ disputed_field: '', description: '' });
     const [submitting, setSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
+
+    useEffect(() => {
+        if (!user?.customerId || !token) { setLoading(false); return; }
+        api.getDisputes(user.customerId, token)
+            .then(res => {
+                // Handle both flat array and wrapped { customer_id, disputes: [] } format
+                const arr = Array.isArray(res) ? res : (res.disputes || []);
+                setDisputes(arr.map(normalise));
+            })
+            .catch(err => console.error('Failed to load disputes', err))
+            .finally(() => setLoading(false));
+    }, [user, token]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSubmitting(true);
         try {
             const res = await api.fileDispute(user?.customerId, form, token);
-            setDisputes(prev => [{ id: res.dispute_id || `DSP-${Date.now()}`, ...form, status: 'OPEN', filed: new Date().toISOString().slice(0, 10) }, ...prev]);
+            const newDispute = normalise({
+                id: res.dispute_id,
+                field: form.disputed_field,
+                desc: form.description,
+                status: 'OPEN',
+                filed: new Date().toISOString().slice(0, 10),
+            });
+            setDisputes(prev => [newDispute, ...prev]);
             setSuccess(true);
             setShowForm(false);
             setForm({ disputed_field: '', description: '' });
             setTimeout(() => setSuccess(false), 4000);
         } catch {
-            const newDispute = { id: `DSP-${Date.now()}`, ...form, status: 'OPEN', filed: new Date().toISOString().slice(0, 10) };
+            const newDispute = normalise({ field: form.disputed_field, desc: form.description, status: 'OPEN' });
             setDisputes(prev => [newDispute, ...prev]);
             setShowForm(false);
             setForm({ disputed_field: '', description: '' });
@@ -106,14 +133,18 @@ export default function DisputePage() {
                 </div>
             )}
 
-            {disputes.length === 0 ? (
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--gray-600)' }}>
+                    Loading disputes…
+                </div>
+            ) : disputes.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--gray-600)' }}>
                     <FileText size={36} style={{ marginBottom: 12, opacity: 0.3 }} />
                     <p>No disputes filed</p>
                 </div>
             ) : (
                 disputes.map(d => {
-                    const s = STATUS[d.status];
+                    const s = STATUS[d.status] || STATUS.OPEN;
                     const SIcon = s.icon;
                     return (
                         <div key={d.id} className="client-card">
@@ -124,9 +155,9 @@ export default function DisputePage() {
                                         <span className={`badge ${s.cls}`}><SIcon size={9} />{d.status}</span>
                                     </div>
                                     <div style={{ fontWeight: 600, color: 'var(--gray-200)', marginBottom: 4, fontSize: '0.875rem' }}>
-                                        {d.disputed_field || d.field}
+                                        {d.field}
                                     </div>
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{d.description || d.desc}</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{d.desc}</div>
                                 </div>
                                 <div style={{ fontSize: '0.72rem', color: 'var(--gray-600)', flexShrink: 0 }}>{d.filed}</div>
                             </div>

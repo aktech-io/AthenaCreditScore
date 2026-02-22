@@ -143,13 +143,14 @@ async def ingest_credit_report(
     )
 
     # ── Persist score event ──────────────────────────────────────────────────
-    await db.execute(text("""
+    event_row = await db.execute(text("""
         INSERT INTO credit_score_events
           (customer_id, base_score, crb_contribution, llm_adjustment,
            pd_probability, final_score, score_band, reasoning, crb_report_id,
            llm_provider, llm_model_name, model_target)
         VALUES (:cid, :base, :crb, :llm, :pd, :final, :band, :reasoning,
                 :crb_rid, :llm_prov, :llm_mod, :target)
+        RETURNING event_id
     """), {
         "cid": customer_id,
         "base": result.base_score,
@@ -163,6 +164,24 @@ async def ingest_credit_report(
         "llm_prov": result.llm_provider,
         "llm_mod": result.llm_model,
         "target": result.model_target,
+    })
+    event_id = event_row.scalar()
+
+    # ── Persist base score breakdown ─────────────────────────────────────────
+    br = result.base_result
+    await db.execute(text("""
+        INSERT INTO base_score_breakdowns
+          (score_event_id, income_stability_score, avg_monthly_income,
+           savings_rate_score, low_balance_score, transaction_diversity, base_total)
+        VALUES (:eid, :inc_stab, :avg_inc, :sav_rate, :low_bal, :tx_div, :base_tot)
+    """), {
+        "eid": event_id,
+        "inc_stab": br.income_stability_score,
+        "avg_inc": br.avg_monthly_income,
+        "sav_rate": br.savings_rate_score,
+        "low_bal": br.low_balance_score,
+        "tx_div": br.transaction_diversity_score,
+        "base_tot": br.base_total,
     })
     await db.commit()
 

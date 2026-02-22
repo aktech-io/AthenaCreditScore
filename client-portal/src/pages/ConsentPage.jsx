@@ -1,26 +1,29 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../services/api.js';
 import { Shield, ShieldAlert, Key, Globe } from 'lucide-react';
 
-const MOCK_PARTNERS = [
-    { id: 'EQU_BANK', name: 'Equity Bank', scope: 'CREDIT_SCORE', granted: '2026-01-10' },
-    { id: 'KCB_PARTNER', name: 'KCB Bank Kenya', scope: 'FULL_REPORT', granted: '2025-11-22' },
-];
-
 export default function ConsentPage() {
     const { token, user } = useAuth();
-    const [partners, setPartners] = useState(MOCK_PARTNERS);
+    const [partners, setPartners] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [savingId, setSavingId] = useState(null);
 
-    const toggleConsent = async (id, currentScope) => {
-        setSavingId(id);
+    useEffect(() => {
+        if (!user?.customerId || !token) { setLoading(false); return; }
+        api.getConsents(user.customerId, token)
+            .then(data => setPartners(Array.isArray(data) ? data : []))
+            .catch(err => console.error('Failed to load consents', err))
+            .finally(() => setLoading(false));
+    }, [user, token]);
+
+    const revokeConsent = async (consentId) => {
+        setSavingId(consentId);
         try {
-            if (currentScope) {
-                // Revoke mock (would call DELETE /api/v3p/consent/:customerId in reality)
-                await new Promise(r => setTimeout(r, 600));
-                setPartners(prev => prev.filter(p => p.id !== id));
-            }
+            await api.revokeConsent(user.customerId, consentId, token);
+            setPartners(prev => prev.filter(p => p.id !== consentId));
+        } catch (err) {
+            console.error('Failed to revoke consent', err);
         } finally { setSavingId(null); }
     };
 
@@ -55,7 +58,12 @@ export default function ConsentPage() {
             </div>
 
             <h3 style={{ fontSize: '1rem', marginBottom: 12 }}>Active Consents</h3>
-            {partners.length === 0 ? (
+
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: '30px', color: 'var(--gray-500)', background: 'var(--gray-800)', borderRadius: 12 }}>
+                    <p style={{ fontSize: '0.85rem' }}>Loading consents…</p>
+                </div>
+            ) : partners.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '30px', color: 'var(--gray-500)', background: 'var(--gray-800)', borderRadius: 12 }}>
                     <Key size={24} style={{ opacity: 0.4, marginBottom: 8 }} />
                     <p style={{ fontSize: '0.85rem' }}>No active partners</p>
@@ -76,8 +84,8 @@ export default function ConsentPage() {
                                         {p.scope === 'FULL_REPORT' ? 'Full Report' : 'Score Only'}
                                     </span>
                                     <button
-                                        className={`toggle ${p.scope ? 'on' : ''}`}
-                                        onClick={() => toggleConsent(p.id, p.scope)}
+                                        className="toggle on"
+                                        onClick={() => revokeConsent(p.id)}
                                         disabled={savingId === p.id}
                                         title="Revoke access"
                                     />

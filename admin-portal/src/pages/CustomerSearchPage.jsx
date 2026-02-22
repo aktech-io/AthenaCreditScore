@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../services/api.js';
-import { Search, RefreshCw, ExternalLink, ChevronRight } from 'lucide-react';
+import { Search, RefreshCw, ChevronRight } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const SCORE_BAND = (score) => {
     if (score >= 720) return { label: 'Prime', cls: 'badge-blue' };
@@ -11,7 +12,7 @@ const SCORE_BAND = (score) => {
     return { label: 'Decline', cls: 'badge-gray' };
 };
 
-// Mock customers
+// Mock customers as fallback
 const MOCK = [
     { id: 101, name: 'Jane Wanjiru', phone: '+254711223344', score: 672, pd: 0.09, sector: 'Retail' },
     { id: 102, name: 'Peter Otieno', phone: '+254722334455', score: 498, pd: 0.31, sector: 'Agriculture' },
@@ -26,6 +27,7 @@ export default function CustomerSearchPage() {
     const [results, setResults] = useState(MOCK);
     const [selected, setSelected] = useState(null);
     const [reportData, setReportData] = useState(null);
+    const [scoreHistory, setScoreHistory] = useState([]);
     const [loadingReport, setLoadingReport] = useState(false);
     const [rescoring, setRescoring] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -33,20 +35,27 @@ export default function CustomerSearchPage() {
     useEffect(() => {
         if (!selected) {
             setReportData(null);
+            setScoreHistory([]);
             return;
         }
-        async function loadReport() {
+        const customerId = selected.id || selected.customer_id;
+        async function loadDetails() {
             setLoadingReport(true);
             try {
-                const res = await api.getFullReport(selected.id || selected.customer_id, token);
-                setReportData(res);
+                const [report, history] = await Promise.all([
+                    api.getFullReport(customerId, token),
+                    api.getCreditScoreHistory(customerId, token).catch(() => ({ data: [] })),
+                ]);
+                setReportData(report);
+                const histData = history?.data || [];
+                setScoreHistory(histData.slice(0, 6).reverse());
             } catch (err) {
-                console.error("Failed to load report", err);
+                console.error('Failed to load report', err);
             } finally {
                 setLoadingReport(false);
             }
         }
-        loadReport();
+        loadDetails();
     }, [selected, token]);
 
     useEffect(() => {
@@ -56,7 +65,7 @@ export default function CustomerSearchPage() {
                 const data = await api.searchCustomers('', token);
                 setResults(data);
             } catch (err) {
-                console.error("Failed to load initial customers", err);
+                console.error('Failed to load initial customers', err);
             } finally {
                 setLoading(false);
             }
@@ -71,7 +80,7 @@ export default function CustomerSearchPage() {
             const data = await api.searchCustomers(query, token);
             setResults(data);
         } catch {
-            console.error("Failed to search customers");
+            console.error('Failed to search customers');
         } finally { setLoading(false); }
     };
 
@@ -221,6 +230,35 @@ export default function CustomerSearchPage() {
                         {reportData && !loadingReport && (
                             <div style={{ marginTop: 32, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 24, animation: 'fadeIn 0.3s ease' }}>
                                 <h4 style={{ marginBottom: 16 }}>Detailed Credit History</h4>
+
+                                {/* Score history chart */}
+                                {scoreHistory.length > 1 && (
+                                    <div style={{ marginBottom: 20 }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Score Trend</div>
+                                        <ResponsiveContainer width="100%" height={100}>
+                                            <AreaChart data={scoreHistory} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                                                <defs>
+                                                    <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                                                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                                                    </linearGradient>
+                                                </defs>
+                                                <XAxis
+                                                    dataKey="scored_at"
+                                                    tickFormatter={v => v ? new Date(v).toLocaleDateString('en-KE', { month: 'short', day: 'numeric' }) : ''}
+                                                    tick={{ fontSize: 9, fill: 'var(--gray-600)' }}
+                                                />
+                                                <YAxis domain={[300, 850]} tick={{ fontSize: 9, fill: 'var(--gray-600)' }} />
+                                                <Tooltip
+                                                    contentStyle={{ background: 'var(--gray-800)', border: '1px solid rgba(255,255,255,0.1)', fontSize: '0.75rem' }}
+                                                    formatter={v => [v, 'Score']}
+                                                    labelFormatter={v => v ? new Date(v).toLocaleDateString() : ''}
+                                                />
+                                                <Area type="monotone" dataKey="final_score" stroke="#6366f1" fill="url(#scoreGrad)" strokeWidth={2} dot={false} />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )}
 
                                 <div style={{ marginBottom: 20 }}>
                                     <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Application Ratios</div>

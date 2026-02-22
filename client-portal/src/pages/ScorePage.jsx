@@ -23,13 +23,31 @@ const MOCK_SCORE = {
     scored_at: '2026-02-18T14:30:00',
 };
 
-const BREAKDOWN = [
-    { label: 'Income Stability', pts: 98, max: 120, color: '#6366f1' },
-    { label: 'Income Level', pts: 75, max: 100, color: '#10b981' },
-    { label: 'Savings Rate', pts: 58, max: 80, color: '#60a5fa' },
-    { label: 'Low-Balance Events', pts: 82, max: 100, color: '#a78bfa' },
-    { label: 'Tx Diversity', pts: 64, max: 100, color: '#34d399' },
+const BREAKDOWN_DEFS = [
+    { key: 'income_stability_score', label: 'Income Stability', max: 120, color: '#6366f1' },
+    { key: 'income_level_score',     label: 'Income Level',     max: 100, color: '#10b981' },
+    { key: 'savings_rate_score',     label: 'Savings Rate',     max: 80,  color: '#60a5fa' },
+    { key: 'low_balance_score',      label: 'Low-Balance Events', max: 100, color: '#a78bfa' },
+    { key: 'transaction_diversity',  label: 'Tx Diversity',     max: 100, color: '#34d399' },
 ];
+
+const FALLBACK_BREAKDOWN = [
+    { label: 'Income Stability', pts: 98, max: 120, color: '#6366f1' },
+    { label: 'Income Level',     pts: 75, max: 100, color: '#10b981' },
+    { label: 'Savings Rate',     pts: 58, max: 80,  color: '#60a5fa' },
+    { label: 'Low-Balance Events', pts: 82, max: 100, color: '#a78bfa' },
+    { label: 'Tx Diversity',     pts: 64, max: 100, color: '#34d399' },
+];
+
+function buildBreakdown(scoreBreakdown) {
+    if (!scoreBreakdown) return FALLBACK_BREAKDOWN;
+    return BREAKDOWN_DEFS.map(def => ({
+        label: def.label,
+        pts: Number(scoreBreakdown[def.key] ?? 0),
+        max: def.max,
+        color: def.color,
+    }));
+}
 
 // Semi-circle gauge via Recharts Pie
 function ScoreGauge({ score, pdProbability }) {
@@ -98,6 +116,8 @@ export default function ScorePage() {
         );
     }
 
+    const breakdown = buildBreakdown(data?.score_breakdown);
+
     return (
         <div>
             {usedFallback && (
@@ -124,7 +144,7 @@ export default function ScorePage() {
                     </span>
                 </div>
 
-                {BREAKDOWN.map(({ label, pts, max, color }) => (
+                {breakdown.map(({ label, pts, max, color }) => (
                     <div key={label} className="breakdown-row">
                         <span className="breakdown-label">{label}</span>
                         <div className="breakdown-bar">
@@ -133,7 +153,7 @@ export default function ScorePage() {
                                 style={{ width: `${(pts / max) * 100}%`, background: color }}
                             />
                         </div>
-                        <span className="breakdown-pts">{pts}/{max}</span>
+                        <span className="breakdown-pts">{Math.round(pts)}/{max}</span>
                     </div>
                 ))}
 
@@ -145,8 +165,8 @@ export default function ScorePage() {
                     gridTemplateColumns: '1fr 1fr', gap: 12,
                 }}>
                     {[
-                        { label: 'CRB Contribution', val: `+${data.crb_contribution} pts`, color: 'var(--green-400)' },
-                        { label: 'AI Adjustment', val: `${data.llm_adjustment > 0 ? '+' : ''}${data.llm_adjustment} pts`, color: data.llm_adjustment >= 0 ? 'var(--green-400)' : 'var(--red-400)' },
+                        { label: 'CRB Contribution', val: `+${data.crb_contribution ?? 0} pts`, color: 'var(--green-400)' },
+                        { label: 'AI Adjustment', val: `${(data.llm_adjustment ?? 0) > 0 ? '+' : ''}${data.llm_adjustment ?? 0} pts`, color: (data.llm_adjustment ?? 0) >= 0 ? 'var(--green-400)' : 'var(--red-400)' },
                     ].map(({ label, val, color }) => (
                         <div key={label} style={{ textAlign: 'center' }}>
                             <div style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{val}</div>

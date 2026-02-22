@@ -1,14 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { api } from '../services/api.js';
-
-const MOCK_DISPUTES = [
-    { id: 'DSP-A1B2', customer: 'Peter Otieno', field: 'npa_count', desc: 'NPA shown from 2019 loan that was fully repaid', status: 'OPEN', filed: '2026-02-15' },
-    { id: 'DSP-C3D4', customer: 'Grace Muthoni', field: 'bureau_score', desc: 'Bureau score missing Metropol Q4 update', status: 'OPEN', filed: '2026-02-12' },
-    { id: 'DSP-E5F6', customer: 'Brian Kiptoo', field: 'active_default', desc: 'Default cleared Jan 2026, still showing active', status: 'RESOLVED', filed: '2026-01-28' },
-    { id: 'DSP-G7H8', customer: 'Amina Khalid', field: 'income_level', desc: 'Business revenue understated in last import', status: 'CLOSED', filed: '2026-01-20' },
-];
 
 const STATUS_META = {
     OPEN: { cls: 'badge-yellow', icon: Clock },
@@ -18,25 +12,39 @@ const STATUS_META = {
 
 export default function DisputesPage() {
     const { token } = useAuth();
-    const [disputes, setDisputes] = useState(MOCK_DISPUTES);
+    const navigate = useNavigate();
+    const [disputes, setDisputes] = useState([]);
     const [filter, setFilter] = useState('ALL');
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function loadDisputes() {
             try {
-                const data = await api.listDisputes(token);
-                setDisputes(data);
+                const data = await api.listDisputes(token, filter === 'ALL' ? '' : filter);
+                setDisputes(Array.isArray(data) ? data : []);
             } catch (err) {
-                console.error("Failed to load disputes", err);
+                console.error('Failed to load disputes', err);
+            } finally {
+                setLoading(false);
             }
         }
         loadDisputes();
-    }, [token]);
+    }, [token, filter]);
 
-    const visible = filter === 'ALL' ? disputes : disputes.filter(d => d.status === filter);
+    const visible = disputes;
 
-    const markResolved = (id) => {
-        setDisputes(prev => prev.map(d => d.id === id ? { ...d, status: 'RESOLVED' } : d));
+    const markResolved = async (id) => {
+        try {
+            await api.updateDispute(id, { status: 'RESOLVED' }, token);
+            setDisputes(prev => prev.map(d => d.id === id ? { ...d, status: 'RESOLVED' } : d));
+        } catch (err) {
+            console.error('Failed to update dispute', err);
+        }
+    };
+
+    const viewCustomer = (dispute) => {
+        const q = dispute.customer || dispute.customerId || '';
+        navigate(`/customers?q=${encodeURIComponent(q)}`);
     };
 
     return (
@@ -74,49 +82,55 @@ export default function DisputesPage() {
             </div>
 
             {/* Disputes list */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {visible.map(d => {
-                    const meta = STATUS_META[d.status];
-                    const Icon = meta.icon;
-                    return (
-                        <div key={d.id} className="card" style={{ padding: '18px 20px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                                        <span style={{ fontWeight: 700, color: 'white', fontSize: '0.875rem' }}>{d.id}</span>
-                                        <span className={`badge ${meta.cls}`}><Icon size={10} />{d.status}</span>
-                                        <span className="badge badge-gray" style={{ fontSize: '0.65rem' }}>{d.field}</span>
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-500)' }}>Loading disputes…</div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {visible.map(d => {
+                        const meta = STATUS_META[d.status] || STATUS_META.CLOSED;
+                        const Icon = meta.icon;
+                        return (
+                            <div key={d.id} className="card" style={{ padding: '18px 20px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                                            <span style={{ fontWeight: 700, color: 'white', fontSize: '0.875rem' }}>{d.id}</span>
+                                            <span className={`badge ${meta.cls}`}><Icon size={10} />{d.status}</span>
+                                            <span className="badge badge-gray" style={{ fontSize: '0.65rem' }}>{d.field || 'Credit Report'}</span>
+                                        </div>
+                                        <div style={{ fontWeight: 600, color: 'var(--gray-200)', fontSize: '0.875rem', marginBottom: 4 }}>
+                                            {d.customer}
+                                        </div>
+                                        <div style={{ fontSize: '0.82rem', color: 'var(--gray-400)' }}>{d.desc}</div>
+                                        <div style={{ fontSize: '0.72rem', color: 'var(--gray-600)', marginTop: 6 }}>
+                                            Filed: {d.filed}
+                                        </div>
                                     </div>
-                                    <div style={{ fontWeight: 600, color: 'var(--gray-200)', fontSize: '0.875rem', marginBottom: 4 }}>
-                                        {d.customer}
-                                    </div>
-                                    <div style={{ fontSize: '0.82rem', color: 'var(--gray-400)' }}>{d.desc}</div>
-                                    <div style={{ fontSize: '0.72rem', color: 'var(--gray-600)', marginTop: 6 }}>
-                                        Filed: {d.filed}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                                    {d.status === 'OPEN' && (
-                                        <button
-                                            className="btn btn-sm btn-primary"
-                                            onClick={() => markResolved(d.id)}
-                                        >
-                                            <CheckCircle size={13} /> Mark Resolved
+                                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                                        {d.status === 'OPEN' && (
+                                            <button
+                                                className="btn btn-sm btn-primary"
+                                                onClick={() => markResolved(d.id)}
+                                            >
+                                                <CheckCircle size={13} /> Mark Resolved
+                                            </button>
+                                        )}
+                                        <button className="btn btn-sm btn-ghost" onClick={() => viewCustomer(d)}>
+                                            View Customer
                                         </button>
-                                    )}
-                                    <button className="btn btn-sm btn-ghost">View Customer</button>
+                                    </div>
                                 </div>
                             </div>
+                        );
+                    })}
+                    {visible.length === 0 && (
+                        <div className="empty-state">
+                            <CheckCircle size={40} className="empty-icon" />
+                            <p>No {filter.toLowerCase()} disputes</p>
                         </div>
-                    );
-                })}
-                {visible.length === 0 && (
-                    <div className="empty-state">
-                        <CheckCircle size={40} className="empty-icon" />
-                        <p>No {filter.toLowerCase()} disputes</p>
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

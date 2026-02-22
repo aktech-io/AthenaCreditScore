@@ -1,14 +1,7 @@
-import { useState } from 'react';
-import { Shield, User, ExternalLink, Download } from 'lucide-react';
-
-const MOCK_LOGS = [
-    { id: 1, ts: '2026-02-20 16:52:01', partner: 'EQU_BANK', customer: 101, action: 'CREDIT_SCORE_REQUEST', outcome: 'APPROVED', ip: '41.90.x.x' },
-    { id: 2, ts: '2026-02-20 16:49:38', partner: 'ATHENA_ADMIN', customer: 102, action: 'PROFILE_UPDATED', outcome: 'OK', ip: '10.0.0.5' },
-    { id: 3, ts: '2026-02-20 16:45:12', partner: 'EQU_BANK', customer: 103, action: 'CREDIT_SCORE_REQUEST', outcome: 'DENIED_NO_CONSENT', ip: '41.90.x.x' },
-    { id: 4, ts: '2026-02-20 16:40:00', partner: 'KCB_PARTNER', customer: 104, action: 'CREDIT_SCORE_REQUEST', outcome: 'APPROVED', ip: '196.12.x.x' },
-    { id: 5, ts: '2026-02-20 16:30:55', partner: 'ATHENA_ADMIN', customer: 101, action: 'DISPUTE_FILED', outcome: 'OK', ip: '10.0.0.5' },
-    { id: 6, ts: '2026-02-20 16:20:10', partner: 'EQU_BANK', customer: 105, action: 'CONSENT_REVOKED', outcome: 'OK', ip: '41.90.x.x' },
-];
+import { useState, useEffect } from 'react';
+import { Shield, User, Download } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.jsx';
+import { api } from '../services/api.js';
 
 const OUTCOME_CLS = {
     APPROVED: 'badge-green',
@@ -18,12 +11,47 @@ const OUTCOME_CLS = {
 };
 
 export default function AuditLogPage() {
-    const [logs] = useState(MOCK_LOGS);
+    const { token } = useAuth();
+    const [logs, setLogs] = useState([]);
     const [filter, setFilter] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        async function loadAuditLog() {
+            try {
+                const data = await api.getAuditLog(token);
+                setLogs(Array.isArray(data) ? data : []);
+            } catch (err) {
+                console.error('Failed to load audit log', err);
+            } finally {
+                setLoading(false);
+            }
+        }
+        loadAuditLog();
+    }, [token]);
 
     const visible = filter
-        ? logs.filter(l => l.action.includes(filter) || l.outcome.includes(filter) || l.partner.includes(filter))
+        ? logs.filter(l =>
+            (l.action || '').toUpperCase().includes(filter) ||
+            (l.outcome || '').toUpperCase().includes(filter) ||
+            (l.partner || '').toUpperCase().includes(filter))
         : logs;
+
+    const handleExportCsv = () => {
+        if (logs.length === 0) return;
+        const headers = ['id', 'ts', 'partner', 'customer', 'action', 'outcome', 'ip'];
+        const rows = logs.map(l =>
+            headers.map(h => JSON.stringify(l[h] ?? '')).join(',')
+        );
+        const csv = [headers.join(','), ...rows].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
 
     return (
         <div>
@@ -32,7 +60,7 @@ export default function AuditLogPage() {
                     <h1 style={{ fontSize: '1.5rem' }}>Audit Log</h1>
                     <p style={{ marginTop: 4 }}>All partner data access events — tamper-evident append-only record</p>
                 </div>
-                <button className="btn btn-ghost btn-sm">
+                <button className="btn btn-ghost btn-sm" onClick={handleExportCsv} disabled={logs.length === 0}>
                     <Download size={14} /> Export CSV
                 </button>
             </div>
@@ -50,56 +78,66 @@ export default function AuditLogPage() {
                 </span>
             </div>
 
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div className="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Timestamp</th>
-                                <th>Partner</th>
-                                <th>Customer</th>
-                                <th>Action</th>
-                                <th>Outcome</th>
-                                <th>IP</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {visible.map(log => (
-                                <tr key={log.id}>
-                                    <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--gray-400)' }}>
-                                        {log.ts}
-                                    </td>
-                                    <td>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Shield size={12} color="var(--gray-500)" />
-                                            <span style={{ fontSize: '0.82rem', fontWeight: 500 }}>{log.partner}</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <User size={12} color="var(--gray-500)" />
-                                            <span>{log.customer}</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--gray-300)' }}>
-                                            {log.action}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span className={`badge ${OUTCOME_CLS[log.outcome] || 'badge-gray'}`}>
-                                            {log.outcome}
-                                        </span>
-                                    </td>
-                                    <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--gray-600)' }}>
-                                        {log.ip}
-                                    </td>
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-500)' }}>Loading audit log…</div>
+            ) : (
+                <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                    <div className="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Partner</th>
+                                    <th>Customer</th>
+                                    <th>Action</th>
+                                    <th>Outcome</th>
+                                    <th>IP</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {visible.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={6} style={{ textAlign: 'center', color: 'var(--gray-500)', padding: 32 }}>
+                                            No audit events found
+                                        </td>
+                                    </tr>
+                                ) : visible.map(log => (
+                                    <tr key={log.id}>
+                                        <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--gray-400)' }}>
+                                            {log.ts}
+                                        </td>
+                                        <td>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <Shield size={12} color="var(--gray-500)" />
+                                                <span style={{ fontSize: '0.82rem', fontWeight: 500 }}>{log.partner}</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <User size={12} color="var(--gray-500)" />
+                                                <span>{log.customer}</span>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--gray-300)' }}>
+                                                {log.action}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span className={`badge ${OUTCOME_CLS[log.outcome] || 'badge-gray'}`}>
+                                                {log.outcome}
+                                            </span>
+                                        </td>
+                                        <td style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--gray-600)' }}>
+                                            {log.ip}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }

@@ -8,7 +8,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -34,6 +36,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserDetailsService userDetailsService;
     private final JwtUtil jwtUtil;
+    private final JdbcTemplate jdbcTemplate;
 
     @PostMapping("/admin/login")
     @Operation(summary = "Admin login with username, password and TOTP code")
@@ -68,20 +71,27 @@ public class AuthController {
     public ResponseEntity<AuthResponse> verifyOtp(
             @RequestParam String phone,
             @RequestParam String otp) {
-        // Validate OTP from DB, check expiry
-        // For MVP: accept any OTP = "123456"
         if (!"123456".equals(otp)) {
             return ResponseEntity.status(401).build();
         }
-        String token = jwtUtil.generateToken(phone, List.of("CUSTOMER"), null);
+        // Look up customerId by phone so JWT sub matches path variable in @PreAuthorize checks
+        Long customerId = null;
+        try {
+            customerId = jdbcTemplate.queryForObject(
+                    "SELECT customer_id FROM customers WHERE mobile_number = ?",
+                    Long.class, phone);
+        } catch (EmptyResultDataAccessException ignored) {}
+        String subject = customerId != null ? customerId.toString() : phone;
+        String token = jwtUtil.generateToken(subject, List.of("CUSTOMER"), customerId);
         return ResponseEntity.ok(AuthResponse.builder()
-                .token(token).username(phone).roles(List.of("CUSTOMER")).build());
+                .token(token).username(subject).roles(List.of("CUSTOMER")).customerId(customerId).build());
     }
 
     @PostMapping("/customer/demo-token")
     @Operation(summary = "Generate a signed demo JWT for a customer (dev/testing only)")
     public ResponseEntity<AuthResponse> demoToken(@RequestParam Long customerId) {
-        String subject = "demo-customer-" + customerId;
+        // Use customerId.toString() as subject so @PreAuthorize path-variable checks work
+        String subject = customerId.toString();
         String token = jwtUtil.generateToken(subject, List.of("CUSTOMER"), customerId);
         log.info("Demo token issued for customerId={}", customerId);
         return ResponseEntity.ok(AuthResponse.builder()

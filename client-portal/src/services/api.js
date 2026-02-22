@@ -20,4 +20,7 @@ export const api = {
     getDisputes: (id, token) => req(`/v1/customers/${id}/disputes`, {}, token),
     fileDispute: (id, body, token) => req(`/v1/customers/${id}/disputes`, { method: 'POST', body: JSON.stringify(body) }, token),
     grantConsent: (id, body, token) => req(`/v1/customers/${id}/consent`, { method: 'PUT', body: JSON.stringify(body) }, token),
+    getConsents: (id, token) => req(`/v1/customers/${id}/consents`, {}, token),
+    revokeConsent: (customerId, consentId, token) =>
+        req(`/v1/customers/${customerId}/consents/${consentId}`, { method: 'DELETE' }, token),
 };
