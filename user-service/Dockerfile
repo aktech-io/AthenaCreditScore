@@ -1,12 +1,15 @@
-# syntax=docker/dockerfile:1
-FROM maven:3.9.6-eclipse-temurin-17-alpine AS build
-WORKDIR /app
-COPY pom.xml .
-RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -q
-COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn clean package -DskipTests -q
-FROM eclipse-temurin:17-jre-alpine
-WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY pkg/athena/ pkg/athena/
+COPY user-service/go.mod user-service/go.sum user-service/
+WORKDIR /src/user-service
+RUN go mod download
+COPY user-service/ .
+RUN CGO_ENABLED=0 go build -o /app ./cmd/main.go
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /app /app
+COPY --from=build /src/user-service/migrations /migrations
 EXPOSE 8081
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["/app"]

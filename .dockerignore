@@ -1,0 +1,16 @@
+# Go service builds (context: .)
+# Exclude heavy dirs not needed by Go builds
+admin-portal/
+client-portal/
+athena-python-service/
+athena-java-service/
+database/
+docs/
+kong/
+mlflow/
+monitoring/
+scripts/
+.git/
+**/target/
+**/node_modules/
+**/.mvn/

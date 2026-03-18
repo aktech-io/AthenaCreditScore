@@ -1,0 +1,10 @@
+go 1.22
+
+use (
+	./pkg/athena
+	./media-service
+	./notification-service
+	./user-service
+	./customer-service
+	./scoring-service
+)
