@@ -79,6 +79,23 @@ services:
       postgres:
         condition: service_healthy
 
+  # ─── Service Discovery (for LMS Java services) ────────────────────────────
+  discovery-server:
+    build:
+      context: ./discovery-server
+      dockerfile: Dockerfile
+    container_name: athena-discovery-server
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    networks:
+      - athena-net
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health | grep -q UP || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
   # ─── Go Microservices ────────────────────────────────────────────────────
   user-service:
     build:
@@ -297,12 +314,12 @@ services:
       - scoring-service
       - athena-python-service
 
-  # ─── React Portals ────────────────────────────────────────────────────────
-  athena-admin-portal:
+  # ─── Athena Portal (Lovable — admin + client unified) ──────────────────────
+  athena-portal:
     build:
-      context: ./admin-portal
+      context: ./athena-portal
       dockerfile: Dockerfile
-    container_name: athena-admin-portal
+    container_name: athena-portal
     restart: unless-stopped
     ports:
       - "5173:80"
@@ -311,20 +328,7 @@ services:
     depends_on:
       - user-service
       - scoring-service
-
-  athena-client-portal:
-    build:
-      context: ./client-portal
-      dockerfile: Dockerfile
-    container_name: athena-client-portal
-    restart: unless-stopped
-    ports:
-      - "5174:80"
-    networks:
-      - athena-net
-    depends_on:
-      - user-service
-      - scoring-service
+      - customer-service
 
   # ─── Monitoring ───────────────────────────────────────────────────────────
   prometheus:
