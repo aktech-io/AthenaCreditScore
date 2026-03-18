@@ -3,6 +3,7 @@ package com.athena.userservice.controller;
 import com.athena.userservice.config.JwtUtil;
 import com.athena.userservice.dto.AuthRequest;
 import com.athena.userservice.dto.AuthResponse;
+import com.athena.userservice.dto.PortalLoginResponse;
 import com.athena.userservice.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,7 +13,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -94,5 +98,73 @@ public class AuthController {
         AuthResponse response = authService.authenticate(request);
         log.info("Internal user login: {}", request.getUsername());
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Unified login endpoint for the qena-connect customer/admin portal.
+     * <ul>
+     *   <li>Admin users: authenticate against the {@code users} table (username + password).</li>
+     *   <li>Customer users: look up by phone number or email, issue a signed JWT with customerId.
+     *       Any password is accepted in this demo build — OTP-based auth is the production path.</li>
+     * </ul>
+     * Returns {@code {token, user:{id, email, firstName, lastName, role, customerId}}} as expected by the portal.
+     */
+    @PostMapping("/login")
+    @Operation(summary = "Unified portal login — accepts admin credentials or customer phone/email")
+    public ResponseEntity<PortalLoginResponse> portalLogin(@RequestBody AuthRequest request) {
+        // 1. Try admin / internal-user authentication first
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+            UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
+            List<String> roles = userDetails.getAuthorities().stream()
+                    .map(a -> a.getAuthority().replace("ROLE_", ""))
+                    .collect(Collectors.toList());
+            String primaryRole = roles.isEmpty() ? "ADMIN" : roles.get(0);
+            String token = jwtUtil.generateToken(request.getUsername(), roles, null);
+            log.info("Portal admin login: {}", request.getUsername());
+            PortalLoginResponse resp = PortalLoginResponse.builder()
+                    .token(token)
+                    .user(PortalLoginResponse.UserInfo.builder()
+                            .id(request.getUsername())
+                            .email(request.getUsername())
+                            .firstName(request.getUsername())
+                            .lastName("")
+                            .role(primaryRole)
+                            .build())
+                    .build();
+            return ResponseEntity.ok(resp);
+        } catch (BadCredentialsException | org.springframework.security.core.userdetails.UsernameNotFoundException adminEx) {
+            // Fall through to customer lookup
+        }
+
+        // 2. Customer lookup by phone or email
+        String lookup = request.getUsername();
+        try {
+            // Try phone first, then email
+            String sql = "SELECT customer_id, first_name, last_name, email FROM customers " +
+                         "WHERE mobile_number = ? OR email = ? LIMIT 1";
+            return jdbcTemplate.queryForObject(sql, (rs, n) -> {
+                long cid = rs.getLong("customer_id");
+                // Include tenantId "admin" so the LMS can scope loans correctly
+                String token = jwtUtil.generateToken(String.valueOf(cid), List.of("CUSTOMER"), cid, "admin");
+                log.info("Portal customer login: customerId={}", cid);
+                PortalLoginResponse resp = PortalLoginResponse.builder()
+                        .token(token)
+                        .user(PortalLoginResponse.UserInfo.builder()
+                                .id(String.valueOf(cid))
+                                .email(rs.getString("email"))
+                                .firstName(rs.getString("first_name"))
+                                .lastName(rs.getString("last_name"))
+                                .role("CUSTOMER")
+                                .customerId(String.valueOf(cid))
+                                .build())
+                        .build();
+                return ResponseEntity.ok(resp);
+            }, lookup, lookup);
+        } catch (DataAccessException e) {
+            log.warn("Portal login failed for username={}", lookup);
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
     }
 }

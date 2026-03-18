@@ -52,3 +52,59 @@ scrape_configs:
   - job_name: rabbitmq
     static_configs:
       - targets: ["rabbitmq:15692"]
+
+  # ─── LMS Services ────────────────────────────────────────────────────────────
+  - job_name: lms-account-service
+    static_configs:
+      - targets: ["lms-account-service:8086"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-product-service
+    static_configs:
+      - targets: ["lms-product-service:8087"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-loan-origination-service
+    static_configs:
+      - targets: ["lms-loan-origination-service:8088"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-loan-management-service
+    static_configs:
+      - targets: ["lms-loan-management-service:8089"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-payment-service
+    static_configs:
+      - targets: ["lms-payment-service:8090"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-accounting-service
+    static_configs:
+      - targets: ["lms-accounting-service:8091"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-float-service
+    static_configs:
+      - targets: ["lms-float-service:8092"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-collections-service
+    static_configs:
+      - targets: ["lms-collections-service:8093"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-compliance-service
+    static_configs:
+      - targets: ["lms-compliance-service:8094"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-reporting-service
+    static_configs:
+      - targets: ["lms-reporting-service:8095"]
+    metrics_path: /actuator/prometheus
+
+  - job_name: lms-ai-scoring-service
+    static_configs:
+      - targets: ["lms-ai-scoring-service:8096"]
+    metrics_path: /actuator/prometheus

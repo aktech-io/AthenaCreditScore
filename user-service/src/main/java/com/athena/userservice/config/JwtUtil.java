@@ -48,9 +48,14 @@ public class JwtUtil {
     }
 
     public String generateToken(String username, List<String> roles, Long customerId) {
+        return generateToken(username, roles, customerId, null);
+    }
+
+    public String generateToken(String username, List<String> roles, Long customerId, String tenantId) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", roles);
         if (customerId != null) claims.put("customerId", customerId);
+        if (tenantId != null) claims.put("tenantId", tenantId);
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(username)
