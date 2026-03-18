@@ -28,21 +28,22 @@ Kong Gateway (:80)
   ├── /api/v1/credit-reports    → athena-python-service:8001 (key-auth)
   └── /api/v3p/**               → scoring-service:8080 (key-auth)
 
-discovery-server:8761      Eureka service registry (Spring Cloud)
-user-service:8081          Spring Boot — admin login, customer OTP, demo-token JWT
-customer-service:8082      Spring Boot — customer CRUD, maker-checker, disputes, consent (JdbcTemplate + Flyway)
-media-service:8083         Spring Boot — file upload/download, Caffeine cache, Flyway
-notification-service:8085  Spring Boot — RabbitMQ consumer (scoring/dispute/consent events)
-scoring-service:8080       Spring Boot — CRB, credit proxy, dashboard, third-party gateway
+discovery-server:8761      Eureka service registry (Spring Cloud) — kept for LMS Java services compatibility; Go services do not register
+user-service:8081          Go (Gin + GORM) — admin login, customer OTP, demo-token JWT, user/role/group management
+customer-service:8082      Go (Gin + GORM) — customer CRUD, maker-checker, disputes, consent
+media-service:8083         Go (Gin + GORM) — file upload/download, go-cache (10 min TTL)
+notification-service:8085  Go (Gin + GORM) — RabbitMQ consumer (scoring/dispute/consent events)
+scoring-service:8080       Go (Gin + GORM) — CRB, credit proxy, dashboard, third-party gateway, go-cache (1h TTL)
 athena-python-service:8001 FastAPI — scoring engine, MLflow, MCP server
 postgres:5432              27-table schema (see Database section)
 rabbitmq:5672              Async events: scoring, notifications, disputes, audit
 mlflow:5000                Model registry + experiment tracking
-prometheus:9090            Metrics scrape (all 6 Java services + python + infra)
+prometheus:9090            Metrics scrape (Go services + python + infra)
 grafana:3000               Dashboards (uid: athena-ops-v2)
-athena-admin-portal:5173   React — glassmorphic dark indigo theme
-athena-client-portal:5174  React — glassmorphic dark vibrant theme (Outfit font)
+athena-portal:5173         React (Lovable) — unified admin + client portal, shadcn/ui + Tailwind + TypeScript
 ```
+
+> **Note:** Kong JWT plugin has been removed. All Go services handle JWT validation internally via the shared `pkg/athena/jwt` package.
 
 ---
 
@@ -54,23 +55,27 @@ cd /home/adira/AthenaCreditScore
 # Start everything
 docker compose up -d
 
-# Check health
-curl http://localhost:8761/actuator/health   # Eureka (discovery-server)
-curl http://localhost:8081/actuator/health   # user-service
-curl http://localhost:8082/actuator/health   # customer-service
-curl http://localhost:8083/actuator/health   # media-service
-curl http://localhost:8085/actuator/health   # notification-service
-curl http://localhost:8080/actuator/health   # scoring-service
-curl http://localhost:8001/health            # Python
-curl http://localhost:5000/health            # MLflow
-curl http://localhost:8761/eureka/apps       # Eureka registry (see registered services)
+# Check health (Go services use /health, not /actuator/health)
+curl http://localhost:8761/actuator/health   # Eureka (discovery-server, still Java)
+curl http://localhost:8081/health             # user-service (Go)
+curl http://localhost:8082/health             # customer-service (Go)
+curl http://localhost:8083/health             # media-service (Go)
+curl http://localhost:8085/health             # notification-service (Go)
+curl http://localhost:8080/health             # scoring-service (Go)
+curl http://localhost:8001/health             # Python
+curl http://localhost:5000/health             # MLflow
 
-# Rebuild a service after code change
+# Rebuild a Go service after code change (build context is repo root)
+docker compose build user-service && docker compose up -d user-service
+docker compose build scoring-service && docker compose up -d scoring-service
 docker compose build athena-python-service && docker compose up -d athena-python-service
-docker compose build athena-java-service   && docker compose up -d athena-java-service
+
+# Portal development
+cd athena-portal && npm run dev   # starts on :5173
 
 # View logs
-docker logs athena-java-service   --tail=50
+docker logs user-service         --tail=50
+docker logs scoring-service      --tail=50
 docker logs athena-python-service --tail=50
 ```
 
@@ -86,88 +91,75 @@ curl -s -X POST http://localhost:8080/api/auth/admin/login \
 
 ## Key File Map
 
-### Java Microservices
+### Shared Go Module (`pkg/athena/`)
+| Package | Purpose |
+|---|---|
+| `jwt/` | HS256 JWT — **base64-decodes** `JWT_SECRET` env var before use (matches Python) |
+| `middleware/` | Gin middleware: JWT auth, CORS, request logging |
+| `rabbitmq/` | RabbitMQ connection, exchange/queue setup, publisher/consumer helpers |
+| `config/` | Shared config loading from environment |
+| `database/` | GORM PostgreSQL connection with retry logic |
+| `errors/` | Standardized error responses |
+| `health/` | Health check endpoint handler |
+
+### Go Microservices
 
 #### `discovery-server/`
-Eureka service registry — all Java services register on startup.
+Eureka service registry (still Java/Spring Cloud) — kept for LMS Java services compatibility. Go services do not register with Eureka.
 
 #### `user-service/` (port 8081)
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `controller/AuthController.java` | Admin login (JWT), customer OTP, demo-token, internal user login |
-| `controller/UserManagementController.java` | `/api/v1/admin/users` — CRUD, role/group assignment, invitation |
-| `controller/GroupController.java` | `/api/v1/admin/groups` — group CRUD, role assignments |
-| `controller/RoleController.java` | `/api/v1/admin/roles` — role CRUD |
-| `controller/PasswordPolicyController.java` | `/api/v1/admin/password-policy` — get/update |
-| `controller/InvitationController.java` | `/api/auth/validate-token`, `/api/auth/complete-registration` (public) |
-| `service/AuthService.java` | Direct DB auth for users table (bypasses Spring Security chain) |
-| `service/PasswordPolicyService.java` | Policy validation + update |
-| `config/DataInitializer.java` | Seeds roles, groups, default password policy on startup |
-| `config/OpenApiConfig.java` | Swagger with JWT Bearer auth |
-| `aspect/LoggingAspect.java` | AOP logging all controller requests/responses |
-| `config/JwtUtil.java` | HS256 JWT — **base64-decodes** `JWT_SECRET` env var before use |
-| `config/JwtAuthenticationFilter.java` | CUSTOMER fast-path (skips UserDetailsService) |
-| `config/SecurityConfig.java` | Stateless Spring Security, permits `/api/auth/**` |
-| `config/AthenaRabbitMQConfig.java` | `athena.exchange` + notification queue |
-| `model/AdminUser.java` | JPA entity — `admin_users` table |
-| `model/User.java` | JPA entity — `users` table (analysts, viewers, etc.) |
-| `model/Role.java` | JPA entity — `roles` table |
-| `model/Group.java` | JPA entity — `user_groups` table |
-| `model/Invitation.java` | JPA entity — `invitations` table |
-| `model/PasswordPolicy.java` | JPA entity — `password_policies` table |
-| `service/AdminUserDetailsService.java` | Loads admin by username for Spring Security |
-| `db/migration/V1__create_user_management_tables.sql` | Flyway: roles, user_groups, users, invitations, password_policies |
+| `cmd/main.go` | Entry point, Gin router setup, middleware registration |
+| `internal/handler/` | Auth (admin login, customer OTP, demo-token), user management, groups, roles, password policy, invitations |
+| `internal/model/` | GORM models: AdminUser, User, Role, Group, Invitation, PasswordPolicy |
+| `internal/service/` | AuthService (DB auth, JWT generation), PasswordPolicyService |
+| `internal/repository/` | GORM repositories for all models |
+| `internal/seed/` | Seeds roles, groups, default admin, password policy on startup |
+| `internal/dto/` | Request/response DTOs |
 
 #### `customer-service/` (port 8082)
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `controller/CustomerController.java` | Customer CRUD, paginated list, maker-checker approve/reject, CSV whitelist, disputes, consent, identity-document — JdbcTemplate |
-| `controller/AdminDisputeController.java` | Admin dispute list + status update |
-| `client/MediaClient.java` | Feign client → media-service for document validation |
-| `dto/CustomerRequest.java` | Create customer DTO (Kenyan schema: county, nationalId, etc.) |
-| `dto/MediaResponse.java` | Media metadata response DTO |
-| `dto/PageResponse.java` | Generic paginated response wrapper |
-| `config/GlobalExceptionHandler.java` | JWT errors, Maker-Checker (403), not-found (404), duplicates (409) |
-| `config/OpenApiConfig.java` | Swagger with JWT Bearer auth |
-| `config/WebConfig.java` | CORS: 5173, 5174, 3000 |
-| `config/JwtUtil.java` | JWT decode only (no token generation) |
-| `config/SecurityConfig.java` | No UserDetailsService — JWT claims directly |
-| `config/AthenaRabbitMQConfig.java` | All 3 queues: scoring, notification, dispute |
-| `db/migration/V1__add_maker_checker_columns.sql` | Adds created_by, approved_by, approved_at, rejection_reason, identity_document_id to customers |
+| `cmd/main.go` | Entry point, Gin router setup |
+| `internal/handler/` | Customer CRUD, paginated list, maker-checker approve/reject, CSV whitelist, disputes, consent, identity-document, admin dispute list |
+| `internal/client/` | HTTP client to media-service for document validation |
+| `internal/dto/` | CustomerRequest, MediaResponse, PageResponse DTOs |
 
 #### `media-service/` (port 8083)
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `controller/MediaController.java` | File upload/download endpoints |
-| `service/MediaService.java` | Disk I/O, path traversal protection, Caffeine caching |
-| `model/Media.java` | JPA entity — `media_files` table (Flyway-managed) |
-| `config/CacheConfig.java` | Caffeine: 100 items, 10 min TTL |
-| `src/main/resources/db/migration/V1__create_media_files.sql` | Flyway migration |
+| `cmd/main.go` | Entry point, Gin router setup |
+| `internal/handler/` | File upload/download, search, stats endpoints |
+| `internal/model/` | GORM model: Media (referenceId, tags, isPublic, thumbnail) |
+| `internal/repository/` | GORM repository with advanced queries |
+| `internal/service/` | Disk I/O, path traversal protection, go-cache (10 min TTL) |
+| `internal/config/` | Service-specific configuration |
 
 #### `notification-service/` (port 8085)
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `listener/AthenaEventListener.java` | Consumes `athena.notification.queue` (DISPUTE_FILED, SCORE_UPDATED, CONSENT_GRANTED, USER_INVITATION) and `athena.dispute.queue` |
-| `service/NotificationService.java` | Sends email via JavaMailSenderImpl (config from DB), Athena templates, audit logging |
-| `controller/NotificationController.java` | `/api/v1/notifications/config/{type}` — get/update SMTP/SMS config; `/api/v1/notifications/send` — manual send |
-| `model/NotificationConfig.java` | JPA entity — `notification_configs` table (EMAIL/SMS provider config) |
-| `model/NotificationLog.java` | JPA entity — `notification_logs` table (send audit) |
-| `config/DataInitializer.java` | Seeds default EMAIL and SMS configs (disabled by default) |
-| `db/migration/V1__create_notification_tables.sql` | Flyway: notification_configs, notification_logs |
+| `cmd/main.go` | Entry point, Gin router setup, RabbitMQ consumer startup |
+| `internal/handler/` | Notification config CRUD, manual send endpoint |
+| `internal/listener/` | Consumes `athena.notification.queue` and `athena.dispute.queue` (DISPUTE_FILED, SCORE_UPDATED, CONSENT_GRANTED, USER_INVITATION) |
+| `internal/model/` | GORM models: NotificationConfig, NotificationLog |
+| `internal/repository/` | GORM repositories for config and logs |
+| `internal/service/` | Email sending (SMTP from DB config), Athena templates, audit logging |
+| `internal/seed/` | Seeds default EMAIL and SMS configs (disabled by default) |
 
 #### `scoring-service/` (port 8080)
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `controller/CreditQueryController.java` | Proxy to Python scoring engine, Caffeine cache (TTL=1h) |
-| `controller/DashboardController.java` | Aggregate stats for admin dashboard |
-| `controller/CrbController.java` | CRB fetch, champion-challenger routing config |
-| `controller/ThirdPartyGatewayController.java` | Third-party API access with consent + audit |
-| `config/JwtUtil.java` | HS256 JWT — **base64-decodes** `JWT_SECRET` env var before use |
-| `routing/ChampionChallengerRouter.java` | Traffic split, runtime-updatable |
-| `config/SecurityConfig.java` | Spring Security filter chain, role definitions |
+| `cmd/main.go` | Entry point, Gin router setup |
+| `internal/handler/` | 9 handlers: CreditQuery, Dashboard, Crb, ThirdPartyGateway, Auth, CustomerProfile, and more |
+| `internal/client/` | HTTP clients to Python scoring engine, CRB APIs |
+| `internal/routing/` | Champion-challenger traffic split, runtime-updatable |
+| `internal/cache/` | go-cache: credit scores and reports (TTL = 1 hour) |
+| `internal/model/` | GORM models for routing config, audit log, champion-challenger log |
+| `internal/dto/` | Request/response DTOs |
 
-> Note: scoring-service also contains AuthController and CustomerProfileController
-> for backwards-compat with the dev portal proxy (which points to :8080).
+> Note: scoring-service also contains Auth and CustomerProfile handlers
+> for backwards-compat with the portal proxy (which points to :8080).
 
 ### Python Service (`athena-python-service/`)
 | File | Purpose |
@@ -188,13 +180,18 @@ Eureka service registry — all Java services register on startup.
 | `mcp_server.py` | MCP server with 7 tools for AI agent workflows |
 | `monitoring/metrics.py` | Prometheus counters, histograms, PSI/KS gauges |
 
-### Portals
-| Portal | Port | Theme | Pages |
-|---|---|---|---|
-| Admin | 5173 | Deep indigo glassmorphic | Login, Dashboard, CustomerSearch, Disputes, ModelConfig, AuditLog |
-| Client | 5174 | Dark vibrant glassmorphic, Outfit font | Login (OTP), Score, Report, Dispute, Consent |
+### Portal (`athena-portal/`, port 5173)
 
-Both portals proxy `/api/**` → `http://localhost:8080` (Java service).
+Unified portal built with Lovable -- shadcn/ui + Radix + Tailwind CSS + TypeScript + @tanstack/react-query.
+
+Landing page at `/` with links to admin and client portals.
+
+| Section | Pages |
+|---|---|
+| Admin | Dashboard, CustomerSearch, Disputes, ModelConfig, AuditLogs, UserManagement, NotificationManagement, Analytics, NPL, Reports, SystemConfig |
+| Client | CreditDashboard, CreditReport (with LLM reasoning), Disputes, ConsentManagement, ScoreSimulator, BureauComparison, Alerts, CreditFreeze, Education, Settings |
+
+Portal proxies `/api/**` to Go services via Kong Gateway.
 
 ---
 
@@ -273,13 +270,16 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 
 ### JWT Secret — MUST READ
 - `JWT_SECRET` in `.env` is a **base64-encoded** string.
-- **Java** (`JwtUtil.java:78`): `Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret))` — decodes before use.
-- **Python** (`auth/jwt_handler.py`): `base64.b64decode(_raw_secret)` — also decodes before use (fixed Feb 2026).
-- Both services now use identical raw key bytes. Never change one without the other.
+- **Go** (`pkg/athena/jwt/`): `base64.StdEncoding.Decode` before use — all 5 Go services share this package.
+- **Python** (`auth/jwt_handler.py`): `base64.b64decode(_raw_secret)` — also decodes before use.
+- Both Go and Python services use identical raw key bytes. Never change one without the other.
+- Kong JWT plugin has been removed — services handle JWT validation internally.
 
 ### LLM Mode
 - `LLM_PROVIDER=openai` → uses `OPENAI_API_KEY` and `LLM_MODEL` (default: `gpt-4o-mini`)
 - `LLM_PROVIDER=local` → points `base_url` to Ollama or vLLM endpoint, zero code change
+  - For Ollama: set `LLM_BASE_URL=http://<host>:11434/v1` and `LLM_MODEL=qwen2.5-coder:7b`
+  - Ollama must listen on all interfaces: `OLLAMA_HOST=0.0.0.0`
 - When `OPENAI_API_KEY` is not set, LLM adjustment returns 0 and `"LLM analysis unavailable."`
 
 ### Champion-Challenger
