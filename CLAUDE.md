@@ -165,7 +165,7 @@ Eureka service registry (still Java/Spring Cloud) — kept for LMS Java services
 | File | Purpose |
 |---|---|
 | `main.py` | FastAPI app, lifespan, CORS, rate limiting |
-| `auth/jwt_handler.py` | JWT verify — **base64-decodes** `JWT_SECRET` to match Java |
+| `auth/jwt_handler.py` | JWT verify — **base64-decodes** `JWT_SECRET` to match Go services |
 | `scoring/base_scorer.py` | 5-dimension scorecard (income stability, level, savings, low-balance, diversity) → 300–700 |
 | `scoring/crb_extractor.py` | Bureau score normalisation, NPA penalty, active default flag → [−100,+150] |
 | `scoring/pdo_transformer.py` | PD → PDO credit score (300–850), inverse function |
@@ -224,7 +224,7 @@ POST /api/auth/customer/request-otp    → SMS OTP sent
 POST /api/auth/customer/verify-otp     → JWT (roles: CUSTOMER, customerId claim)
 ```
 
-### Credit (Java proxies to Python)
+### Credit (Go proxies to Python)
 ```
 GET  /api/v1/credit/score/{customerId}          → cached credit score
 GET  /api/v1/credit/report/{customerId}         → full report + DB metrics
@@ -287,9 +287,10 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 - Update live: `PUT /api/v1/crb/routing-config?challengerPct=0.2`
 - Every request logged to `champion_challenger_log`
 
-### Caffeine Cache
-- `credit_scores` cache: TTL = 1 hour
-- `credit_reports` cache: TTL = 1 hour
+### go-cache (replaces Caffeine)
+- `credit_scores` cache: TTL = 1 hour (scoring-service)
+- `credit_reports` cache: TTL = 1 hour (scoring-service)
+- Media cache: TTL = 10 min (media-service)
 - Bypass by calling Python service directly or using the trigger endpoint
 
 ---
@@ -312,17 +313,8 @@ pytest tests/ -v --tb=short
 | TestNoData / TestDelinquencyStreaks / TestRollingRates / TestLoanSpacing / TestPaymentBehaviour | 12 |
 | TestMlflowClientCompare | 5 |
 
-### Java (JUnit 5) — 32 tests
-```bash
-cd athena-java-service && mvn test
-```
-| Class | Tests |
-|---|---|
-| JwtUtilTest | 9 |
-| ChampionChallengerRouterTest | 7 |
-| AuthControllerTest | 6 |
-| CrbApiClientTest | 4 |
-| GlobalExceptionHandlerTest | 6 |
+### Go — TODO
+Go unit tests have not yet been ported from the original Java JUnit 5 suite (32 tests covering JWT, champion-challenger routing, auth, CRB client, error handling). This is a priority item for test coverage parity.
 
 ### Load Test
 ```bash
@@ -341,16 +333,57 @@ python3 simulate_app_traffic.py
 | `GET /api/v1/customers/{id}/disputes` → empty stub | `CustomerProfileController.getDisputes` returned hardcoded empty list | Wired to `disputes` table via `jdbcTemplate.queryForList` |
 | `GET /api/v1/credit-score?customerId=1` → 404 | Wrong URL format — endpoint is path param, not query param | Use `/api/v1/credit-score/{customer_id}` |
 
-## Microservice Porting (Feb 2026 — from athena-device-finance)
+## Microservice Porting History
 
-All 4 services ported and enhanced:
+### Feb 2026 — Java porting from athena-device-finance
+All 4 services originally ported as Spring Boot services. See git history for details.
 
-| Service | What Was Added |
+### March 2026 — Java to Go conversion
+All 5 microservices converted from Java (Spring Boot) to Go (Gin + GORM):
+
+| Change | Details |
 |---|---|
-| `media-service` | Extended Media model (referenceId, tags, isPublic, thumbnail), advanced repo queries, general upload overload, search, stats, GlobalExceptionHandler, WebConfig, OpenApiConfig, V2 migration |
-| `notification-service` | DB-backed config (SMTP + SMS), NotificationLog audit table, NotificationService (JavaMailSenderImpl from DB), 3 template methods, NotificationController, USER_INVITATION event handler, V1 migration |
-| `user-service` | Full user management: User/Role/Group/Invitation/PasswordPolicy JPA entities, 5 repos, AuthService, PasswordPolicyService, DataInitializer, 5 controllers (users, groups, roles, policy, invitations), AOP LoggingAspect, invitation email via RabbitMQ, V1 migration (flyway) |
-| `customer-service` | Paginated list, create (PENDING), maker-checker approve/reject, CSV whitelist upload, identity-document linking via Feign→media-service, GlobalExceptionHandler, OpenApiConfig, WebConfig, Flyway V1 (adds created_by/approved_by/approved_at/rejection_reason/identity_document_id) |
+| Framework | Spring Boot (JPA, Flyway, Feign) replaced with Gin + GORM + standard HTTP clients |
+| Shared code | `pkg/athena/` module provides jwt, middleware, rabbitmq, config, database (with retry logic), errors, health |
+| Caching | Caffeine replaced with go-cache (1h TTL for scoring, 10min for media) |
+| Service discovery | Eureka kept running for LMS Java services compatibility; Go services do not register |
+| Kong JWT | Kong JWT plugin removed — services handle JWT validation internally via shared middleware |
+| Database migrations | GORM AutoMigrate replaces Flyway |
+| Portal | Two separate React portals (admin :5173, client :5174) replaced with unified Lovable portal on :5173 |
+
+### 18 March 2026 — LMS integration, monitoring, and Java service hardening
+
+#### Unified Portal Login (`user-service`)
+- New `POST /api/auth/login` endpoint — single login for admin and customer users
+- Admin: authenticates against `users` table (username + password)
+- Customer: lookup by phone or email, issues JWT with `customerId` and `tenantId` claims
+- New `PortalLoginResponse` DTO with nested `UserInfo` (id, email, firstName, lastName, role, customerId, merchantId)
+- `JwtUtil.generateToken` now supports optional `tenantId` claim for LMS tenant scoping
+
+#### Improved Error Handling (`user-service`)
+- `GlobalExceptionHandler`: added handlers for `BadCredentialsException`, `AuthenticationException`, and `MethodArgumentNotValidException`
+- `RuntimeException` handler now safely handles null messages
+
+#### Customer Creation Validation (`customer-service`)
+- Added server-side validation for required fields (firstName, lastName, mobileNumber, nationalId)
+- Fixed `BadSqlGrammarException` — date-of-birth now uses `java.sql.Date` instead of string conversion
+- Fixed placeholder count mismatch in INSERT statement
+
+#### Database Migration
+- `V2__add_disputed_field_to_disputes.sql` — adds `disputed_field` column to `disputes` table for tracking which credit field is being disputed
+
+#### LMS Monitoring (`monitoring/`)
+- Prometheus: added scrape configs for 11 LMS services (account, product, loan-origination, loan-management, payment, accounting, float, collections, compliance, reporting, ai-scoring) on ports 8086–8096
+- Alerting rules: added `lms_service_health` group with 4 alerts:
+  - `LmsServiceDown` — critical, fires after 2 min unreachable
+  - `LmsHigh5xxRate` — warning, fires when 5xx rate > 5%
+  - `LmsHighJvmHeap` — warning, fires when heap > 85%
+  - `LmsFloatNearExhaustion` — critical, fires when float balance < 5%
+- New Grafana dashboard (`monitoring/grafana/lms_overview.json`) — HTTP traffic, JVM metrics, and RabbitMQ queue depth for LMS services
+
+#### Go LMS Services (`go-services/`)
+- New monorepo with compiled Go binaries for LMS microservices: account, product, loan-origination, loan-management, ai-scoring, fraud-detection, overdraft, reporting
+- Shared internal packages, migrations, and deployment configs
 
 ---
 
@@ -366,13 +399,13 @@ All 4 services ported and enhanced:
 - [x] Consent persistence — persists to `consents` table ✅
 
 ### Minor Linting
-- [ ] CSS compatibility warnings in admin/client portal builds
-- [x] Java type-safety warnings (raw `Map` types in `CreditQueryController`) — fixed with `ParameterizedTypeReference<Map<String,Object>>` ✅
+- [ ] CSS compatibility warnings in portal build
 
 ### Features Not Yet Built
 - [ ] Score history chart in admin `CustomerSearchPage` slide-in panel (data endpoint exists as stub)
 - [ ] Data deletion flow (GDPR/DPA — marked as "future automation" in whitepaper §9.3)
-- [ ] TOTP second factor for admin login (configurable per-admin, not yet enforced in `AuthController`)
+- [ ] TOTP second factor for admin login (configurable per-admin, not yet enforced in auth handler)
+- [ ] Port Java JUnit 5 tests to Go (32 tests — see Test Coverage section)
 
 ---
 
@@ -385,8 +418,7 @@ All 4 services ported and enhanced:
 | MLflow | http://localhost:5000 | — |
 | RabbitMQ Management | http://localhost:15672 | athena / athena_secret_change_me |
 | Kong Admin | http://localhost:8444 | — |
-| Admin Portal | http://localhost:5173 | admin / admin |
-| Client Portal | http://localhost:5174 | OTP via phone |
+| Athena Portal | http://localhost:5173 | admin / admin (admin); OTP (client) |
 
 ---
 
@@ -408,9 +440,9 @@ GRAFANA_PASSWORD=...
 
 | Component | Source | Change |
 |---|---|---|
-| `JwtUtil.java` | `athena-device-finance/user-service` | +`extractRoles`, `extractCustomerId` |
-| `AthenaRabbitMQConfig.java` | `user-service` RabbitMQConfig | 3 queues instead of 1 |
-| `AuthController.java` | `user-service` | +OTP customer flow |
-| Feign client pattern | `customer-service` UserClient | → `MifosClient`, `CrbApiClient` |
-| Caffeine cache config | `media-service` CacheConfig | Verbatim |
-| Notification via RabbitMQ | `notification-service` InvitationEventListener | → `ScoringEventListener` |
+| `pkg/athena/jwt` | Originally `JwtUtil.java` from athena-device-finance | Rewritten in Go; +extractRoles, extractCustomerId |
+| `pkg/athena/rabbitmq` | Originally `AthenaRabbitMQConfig.java` | Go amqp091; 3 queues |
+| Auth handler | Originally `AuthController.java` | Go Gin handler; +OTP customer flow |
+| HTTP clients | Originally Feign client pattern | Go net/http clients for media-service, Python service, CRB APIs |
+| go-cache config | Originally Caffeine CacheConfig | go-cache with same TTL semantics |
+| Notification listener | Originally `InvitationEventListener.java` | Go RabbitMQ consumer |

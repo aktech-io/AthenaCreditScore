@@ -101,18 +101,38 @@ public class CustomerController {
     public ResponseEntity<Map<String, Object>> createCustomer(
             @RequestBody CustomerRequest request,
             Authentication auth) {
+        // Validate required fields
+        if (request.getFirstName() == null || request.getFirstName().isBlank()) {
+            throw new RuntimeException("firstName is required");
+        }
+        if (request.getLastName() == null || request.getLastName().isBlank()) {
+            throw new RuntimeException("lastName is required");
+        }
+        if (request.getMobileNumber() == null || request.getMobileNumber().isBlank()) {
+            throw new RuntimeException("mobileNumber is required");
+        }
+        if (request.getNationalId() == null || request.getNationalId().isBlank()) {
+            throw new RuntimeException("nationalId is required");
+        }
+
         String createdBy = auth != null ? auth.getName() : "system";
+
+        // Use java.sql.Date for proper JDBC type mapping (avoids BadSqlGrammarException)
+        java.sql.Date sqlDob = request.getDateOfBirth() != null
+                ? java.sql.Date.valueOf(request.getDateOfBirth()) : null;
+
         jdbcTemplate.update(
                 "INSERT INTO customers (first_name, last_name, mobile_number, email, national_id, " +
                 "date_of_birth, gender, county, region, bank_name, account_number, " +
                 "verification_status, crb_consent, registration_channel, created_by) " +
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,'PENDING',false,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 request.getFirstName(), request.getLastName(), request.getMobileNumber(),
                 request.getEmail(), request.getNationalId(),
-                request.getDateOfBirth() != null ? request.getDateOfBirth().toString() : null,
+                sqlDob,
                 request.getGender(),
                 request.getCounty(), request.getRegion(),
                 request.getBankName(), request.getAccountNumber(),
+                "PENDING", false,
                 request.getRegistrationChannel() != null ? request.getRegistrationChannel() : "ADMIN_PORTAL",
                 createdBy);
 

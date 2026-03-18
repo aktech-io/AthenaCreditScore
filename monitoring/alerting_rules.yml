@@ -60,3 +60,50 @@ groups:
         annotations:
           summary: "p95 scoring latency > 5s"
           description: "p95 = {{ $value }}s. LLM may be slow or overloaded."
+
+  - name: lms_service_health
+    rules:
+      - alert: LmsServiceDown
+        expr: up{job=~"lms-.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LMS service down: {{ $labels.job }}"
+          description: "{{ $labels.job }} has been unreachable for more than 2 minutes."
+
+      - alert: LmsHigh5xxRate
+        expr: |
+          sum by (service) (
+            rate(http_server_requests_seconds_count{status=~"5..", job=~"lms-.*"}[5m])
+          ) /
+          sum by (service) (
+            rate(http_server_requests_seconds_count{job=~"lms-.*"}[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.service }}"
+          description: "5xx error rate is {{ $value | humanizePercentage }} for {{ $labels.service }}."
+
+      - alert: LmsHighJvmHeap
+        expr: |
+          jvm_memory_used_bytes{area="heap", job=~"lms-.*"} /
+          jvm_memory_max_bytes{area="heap", job=~"lms-.*"} > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High JVM heap on {{ $labels.service }}"
+          description: "JVM heap usage is {{ $value | humanizePercentage }} for {{ $labels.service }}."
+
+      - alert: LmsFloatNearExhaustion
+        expr: |
+          lms_float_available_balance_kes / lms_float_limit_kes < 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Float account near exhaustion"
+          description: "Float available balance is below 5% of limit."
