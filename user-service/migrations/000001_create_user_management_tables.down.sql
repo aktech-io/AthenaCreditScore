@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS invitation_groups;
+DROP TABLE IF EXISTS invitation_roles;
+DROP TABLE IF EXISTS invitations;
+DROP TABLE IF EXISTS user_group_members;
+DROP TABLE IF EXISTS user_roles;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS group_roles;
+DROP TABLE IF EXISTS user_groups;
+DROP TABLE IF EXISTS roles;
+DROP TABLE IF EXISTS password_policies;

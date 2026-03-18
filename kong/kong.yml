@@ -17,12 +17,6 @@ services:
         paths:
           - /api/v1/admin
         strip_path: false
-    plugins:
-      - name: jwt
-        config:
-          key_claim_name: sub
-          claims_to_verify:
-            - exp
 
   - name: athena-notifications
     url: http://notification-service:8085
@@ -31,12 +25,6 @@ services:
         paths:
           - /api/v1/notifications
         strip_path: false
-    plugins:
-      - name: jwt
-        config:
-          key_claim_name: sub
-          claims_to_verify:
-            - exp
 
   - name: athena-customers
     url: http://customer-service:8082
@@ -46,12 +34,6 @@ services:
           - /api/v1/customers
           - /api/v1/disputes
         strip_path: false
-    plugins:
-      - name: jwt
-        config:
-          key_claim_name: sub
-          claims_to_verify:
-            - exp
 
   - name: athena-media
     url: http://media-service:8083
@@ -60,12 +42,6 @@ services:
         paths:
           - /api/v1/media
         strip_path: false
-    plugins:
-      - name: jwt
-        config:
-          key_claim_name: sub
-          claims_to_verify:
-            - exp
 
   - name: athena-credit-api
     url: http://athena-python-service:8001
@@ -76,11 +52,6 @@ services:
           - /api/v1/credit-report
         strip_path: false
     plugins:
-      - name: jwt
-        config:
-          key_claim_name: sub
-          claims_to_verify:
-            - exp
       - name: rate-limiting
         config:
           minute: 100
@@ -97,12 +68,6 @@ services:
           - /api/v1/audit
           - /api/v1/models
         strip_path: false
-    plugins:
-      - name: jwt
-        config:
-          key_claim_name: sub
-          claims_to_verify:
-            - exp
 
   - name: athena-inbound-reports
     url: http://athena-python-service:8001

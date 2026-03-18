@@ -1,22 +1,14 @@
-# syntax=docker/dockerfile:1
-FROM maven:3.9.6-eclipse-temurin-17-alpine AS build
-WORKDIR /app
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY pkg/athena/ pkg/athena/
+COPY scoring-service/go.mod scoring-service/go.sum scoring-service/
+WORKDIR /src/scoring-service
+RUN go mod download
+COPY scoring-service/ .
+RUN CGO_ENABLED=0 go build -o /app ./cmd/main.go
 
-# 1. Copy only the POM first — this layer is cached until pom.xml changes
-COPY pom.xml .
-
-# 2. Download all dependencies into the BuildKit cache mount.
-#    This layer re-runs only when pom.xml changes.
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn dependency:go-offline -q
-
-# 3. Copy source and compile. Only this layer re-runs on source changes.
-COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 \
-    mvn clean package -DskipTests -q
-
-FROM eclipse-temurin:17-jre-alpine
-WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates tzdata
+COPY --from=build /app /app
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["/app"]

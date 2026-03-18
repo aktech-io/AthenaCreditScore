@@ -79,40 +79,23 @@ services:
       postgres:
         condition: service_healthy
 
-  # ─── Service Discovery ─────────────────────────────────────────────────────
-  discovery-server:
-    build:
-      context: ./discovery-server
-      dockerfile: Dockerfile
-    container_name: athena-discovery-server
-    restart: unless-stopped
-    ports:
-      - "8761:8761"
-    networks:
-      - athena-net
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health | grep -q UP || exit 1" ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-
-  # ─── Java Microservices ────────────────────────────────────────────────────
+  # ─── Go Microservices ────────────────────────────────────────────────────
   user-service:
     build:
-      context: ./user-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: user-service/Dockerfile
     container_name: athena-user-service
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-athena_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-athena}
-      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-athena_secret}
+      PORT: "8081"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-athena}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      DB_NAME: ${POSTGRES_DB:-athena_db}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
-      EUREKA_URI: http://discovery-server:8761/eureka/
     ports:
       - "8081:8081"
     networks:
@@ -122,24 +105,28 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      discovery-server:
-        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q UP || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   customer-service:
     build:
-      context: ./customer-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: customer-service/Dockerfile
     container_name: athena-customer-service
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-athena_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-athena}
-      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-athena_secret}
+      PORT: "8082"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-athena}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      DB_NAME: ${POSTGRES_DB:-athena_db}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
       JWT_SECRET: ${JWT_SECRET}
-      EUREKA_URI: http://discovery-server:8761/eureka/
+      MEDIA_SERVICE_URL: http://media-service:8083
     ports:
       - "8082:8082"
     networks:
@@ -149,22 +136,27 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      discovery-server:
-        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep -q UP || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   media-service:
     build:
-      context: ./media-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: media-service/Dockerfile
     container_name: athena-media-service
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-athena_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      PORT: "8083"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-athena}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      DB_NAME: ${POSTGRES_DB:-athena_db}
       JWT_SECRET: ${JWT_SECRET}
       STORAGE_LOCATION: /app/storage
-      EUREKA_URI: http://discovery-server:8761/eureka/
     volumes:
       - media_storage:/app/storage
     ports:
@@ -174,23 +166,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      discovery-server:
-        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q UP || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   notification-service:
     build:
-      context: ./notification-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: notification-service/Dockerfile
     container_name: athena-notification-service
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-athena_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-athena}
-      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-athena_secret}
-      EUREKA_URI: http://discovery-server:8761/eureka/
+      PORT: "8085"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-athena}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      DB_NAME: ${POSTGRES_DB:-athena_db}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
     ports:
       - "8085:8085"
     networks:
@@ -200,22 +195,26 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      discovery-server:
-        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health | grep -q UP || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   scoring-service:
     build:
-      context: ./scoring-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: scoring-service/Dockerfile
     container_name: athena-scoring-service
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-athena_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-athena}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-athena}
-      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASS:-athena_secret}
+      PORT: "8080"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:-athena}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-athena_secret}
+      DB_NAME: ${POSTGRES_DB:-athena_db}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
       MIFOS_BASE_URL: ${MIFOS_BASE_URL}
@@ -227,7 +226,6 @@ services:
       METROPOL_URL: ${METROPOL_URL}
       CHALLENGER_TRAFFIC_PCT: ${CHALLENGER_TRAFFIC_PCT:-0.0}
       SCORING_ENGINE_URL: http://athena-python-service:8001
-      EUREKA_URI: http://discovery-server:8761/eureka/
     ports:
       - "8080:8080"
     networks:
@@ -237,8 +235,11 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      discovery-server:
-        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ─── Python AI/ML Microservice ────────────────────────────────────────────
   athena-python-service:
