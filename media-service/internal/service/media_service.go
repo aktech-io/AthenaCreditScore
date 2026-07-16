@@ -122,11 +122,17 @@ func (s *MediaService) doUpload(fh *multipart.FileHeader, category, mediaType st
 		return nil, fmt.Errorf("failed to save media record: %w", err)
 	}
 
+	// referenceID is an optional *uuid.UUID; logging it via Stringer when nil
+	// panics (uuid.UUID.String is a value method), so format it defensively.
+	refIDStr := ""
+	if referenceID != nil {
+		refIDStr = referenceID.String()
+	}
 	log.Info().
 		Str("id", media.ID.String()).
 		Str("category", category).
 		Stringer("customerId", intPtrStringer{customerID}).
-		Stringer("referenceId", referenceID).
+		Str("referenceId", refIDStr).
 		Msg("media uploaded")
 
 	return media, nil
