@@ -34,3 +34,7 @@ monitoring/grafana/data/
 .idea/
 .vscode/
 *.iml
+
+# Maven build metadata & Go build output (untracked)
+**/target/maven-status/
+**/bin/
