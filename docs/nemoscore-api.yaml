@@ -1,0 +1,169 @@
+openapi: "3.0.3"
+info:
+  title: NemoScore Scoring API
+  version: "1.0.0"
+  description: |
+    Versioned contract for the NemoScore credit scoring engine (part of the
+    Nemo neobank platform). This is THE contract: the LMS, portal, and any
+    third-party consumer must decode against these schemas. Breaking changes
+    require a major version bump and a new route prefix.
+
+    Score scale: 300-850 (PDO-calibrated).
+    Band labels (display form / canonical enum):
+      Excellent  / EXCELLENT   780-850
+      Very Good  / VERY_GOOD   720-779
+      Good       / GOOD        680-719
+      Fair       / FAIR        640-679
+      Marginal   / MARGINAL    600-639
+      Poor       / POOR        300-599
+    Consumers MUST normalize band strings case-insensitively with spaces
+    mapped to underscores.
+
+    Authentication: Bearer JWT (portal users) or X-Api-Key (internal services,
+    keys provisioned via SERVICE_API_KEYS / Kong consumers). All service
+    traffic goes through Kong (rate limiting applies).
+
+servers:
+  - url: http://kong:8000
+    description: In-cluster via Kong Gateway
+
+paths:
+  /api/v1/credit-score/{customerId}:
+    get:
+      summary: Latest persisted credit score summary
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Latest score event
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScoreSummary" }
+        "404": { description: No score exists for this customer }
+        "401": { description: Missing/invalid credentials }
+        "403": { description: Customer token accessing another customer }
+
+  /api/v1/credit-report/{customerId}:
+    get:
+      summary: Latest full credit report (score + breakdown + bureau data)
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Full report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FullReport" }
+        "404": { description: No report exists }
+
+  /api/v1/credit-reports:
+    post:
+      summary: Ingest a CRB report and run a fresh scoring pipeline
+      security: [{ apiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreditReportPayload" }
+      responses:
+        "200":
+          description: Scoring result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScoreResult" }
+        "401": { description: Invalid API key }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    apiKeyAuth: { type: apiKey, in: header, name: X-Api-Key }
+
+  schemas:
+    ScoreBand:
+      type: string
+      description: Display label; normalize to canonical enum for storage.
+      enum: [Excellent, "Very Good", Good, Fair, Marginal, Poor]
+
+    ScoringStatus:
+      type: string
+      description: |
+        SCORED — decision-grade result.
+        INSUFFICIENT_DATA — do NOT auto-decide; route to manual review.
+      enum: [SCORED, INSUFFICIENT_DATA]
+
+    DataSufficiency:
+      type: string
+      enum: [FULL, PARTIAL, INSUFFICIENT]
+      description: FULL ≥3 months transactions; PARTIAL = thin file with bureau data.
+
+    ScoreSummary:
+      type: object
+      required: [customer_id, final_score, score_band, pd_probability, status]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        final_score: { type: integer, minimum: 300, maximum: 850 }
+        score_band: { $ref: "#/components/schemas/ScoreBand" }
+        pd_probability: { type: number, minimum: 0, maximum: 1 }
+        scored_at: { type: string }
+        status: { $ref: "#/components/schemas/ScoringStatus" }
+
+    ScoreResult:
+      type: object
+      required: [customer_id, final_score, score_band, pd_probability, status]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        base_score: { type: number, description: Rule-based scorecard total (300-700) }
+        crb_contribution: { type: number, minimum: -100, maximum: 150 }
+        llm_adjustment:
+          type: integer
+          description: Capped qualitative overlay; never crosses a band boundary.
+        pd_probability: { type: number, minimum: 0, maximum: 1 }
+        final_score: { type: integer, minimum: 300, maximum: 850 }
+        score_band: { $ref: "#/components/schemas/ScoreBand" }
+        reasoning: { type: array, items: { type: string } }
+        llm_provider: { type: string }
+        llm_model: { type: string }
+        scored_at: { type: string }
+        status: { $ref: "#/components/schemas/ScoringStatus" }
+        data_sufficiency: { $ref: "#/components/schemas/DataSufficiency" }
+        pd_source:
+          type: string
+          description: "\"lgbm:champion\", \"lgbm:challenger\", or \"scorecard\" (fallback)."
+        model_version:
+          type: string
+          nullable: true
+          description: MLflow registry version when pd_source is an ML model.
+
+    FullReport:
+      allOf:
+        - $ref: "#/components/schemas/ScoreResult"
+        - type: object
+          properties:
+            customer_name: { type: string }
+            crb_name: { type: string, nullable: true }
+            bureau_score: { type: integer, nullable: true }
+
+    CreditReportPayload:
+      type: object
+      required: [customer, creditReport]
+      properties:
+        customer:
+          type: object
+          required: [nationalId, firstName, lastName]
+          properties:
+            nationalId: { type: string }
+            firstName: { type: string }
+            lastName: { type: string }
+            phone: { type: string, nullable: true }
+            email: { type: string, nullable: true }
+        creditReport:
+          type: object
+          description: Raw CRB report (bureau-specific shape, stored verbatim).

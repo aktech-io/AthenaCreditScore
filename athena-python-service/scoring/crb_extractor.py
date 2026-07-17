@@ -71,7 +71,9 @@ def extract_crb_metrics(raw_report: Dict[str, Any]) -> CrbMetrics:
     enquiries_90d = credit_report.get("enquiriesLast90Days", 0) or 0
     applications_12m = credit_report.get("creditApplicationsLast12Months", 0) or 0
 
-    crb_contribution = max(0.0, min(150.0, bureau_score_pts + npa_pts + default_pts))
+    # Documented range is [-100, +150]: adverse bureau data must be able to
+    # push the contribution negative (whitepaper Table 5.2.1).
+    crb_contribution = max(-100.0, min(150.0, bureau_score_pts + npa_pts + default_pts))
 
     return CrbMetrics(
         crb_name=crb_name,

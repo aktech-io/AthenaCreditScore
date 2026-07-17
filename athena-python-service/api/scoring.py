@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth.jwt_handler import verify_jwt
+from auth.jwt_handler import verify_jwt_or_service_key
 from db.database import get_db
 
 router = APIRouter()
@@ -19,6 +19,8 @@ class ScoreSummaryResponse(BaseModel):
     score_band: Optional[str]
     pd_probability: Optional[float]
     scored_at: Optional[str]
+    # A persisted score event is by definition a completed scoring run.
+    status: str = "SCORED"
 
 
 class FullReportResponse(BaseModel):
@@ -40,7 +42,7 @@ class FullReportResponse(BaseModel):
 async def get_latest_score(
     customer_id: int,
     db: AsyncSession = Depends(get_db),
-    claims: dict = Depends(verify_jwt),
+    claims: dict = Depends(verify_jwt_or_service_key),
 ):
     """Returns the latest credit score summary for a customer."""
     _check_access(claims, customer_id)
@@ -63,7 +65,7 @@ async def get_latest_score(
 async def get_full_report(
     customer_id: int,
     db: AsyncSession = Depends(get_db),
-    claims: dict = Depends(verify_jwt),
+    claims: dict = Depends(verify_jwt_or_service_key),
 ):
     """Returns the full credit report for a customer (portals + third-party)."""
     _check_access(claims, customer_id)
@@ -96,6 +98,6 @@ def _check_access(claims: dict, customer_id: int):
     """Customers can only view their own report; admins can view all."""
     roles: List[str] = claims.get("roles", [])
     token_customer_id = claims.get("customerId")
-    is_admin = any(r in roles for r in ("ADMIN", "ANALYST", "VIEWER", "CREDIT_RISK"))
+    is_admin = any(r in roles for r in ("ADMIN", "ANALYST", "VIEWER", "CREDIT_RISK", "SERVICE"))
     if not is_admin and str(token_customer_id) != str(customer_id):
         raise HTTPException(status_code=403, detail="Access denied")

@@ -11,11 +11,6 @@ scrape_configs:
       - targets: ["athena-python-service:8001"]
     metrics_path: /metrics
 
-  - job_name: discovery-server
-    static_configs:
-      - targets: ["discovery-server:8761"]
-    metrics_path: /actuator/prometheus
-
   - job_name: user-service
     static_configs:
       - targets: ["user-service:8081"]

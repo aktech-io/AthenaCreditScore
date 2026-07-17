@@ -28,7 +28,6 @@ Kong Gateway (:80)
   ├── /api/v1/credit-reports    → athena-python-service:8001 (key-auth)
   └── /api/v3p/**               → scoring-service:8080 (key-auth)
 
-discovery-server:8761      Eureka service registry (Spring Cloud) — kept for LMS Java services compatibility; Go services do not register
 user-service:8081          Go (Gin + GORM) — admin login, customer OTP, demo-token JWT, user/role/group management
 customer-service:8082      Go (Gin + GORM) — customer CRUD, maker-checker, disputes, consent
 media-service:8083         Go (Gin + GORM) — file upload/download, go-cache (10 min TTL)
@@ -44,6 +43,14 @@ athena-portal:5173         React (Lovable) — unified admin + client portal, sh
 ```
 
 > **Note:** Kong JWT plugin has been removed. All Go services handle JWT validation internally via the shared `pkg/athena/jwt` package.
+
+> **NemoScore (July 2026):** the platform is being rebranded/rebuilt as **NemoScore** for the
+> Nemo neobank (LMS at `../AthenaIntelligentLMS`). See `docs/nemoscore-audit.md` (audit + roadmap)
+> and `docs/nemoscore-api.yaml` (**the** versioned scoring contract — LMS and portal decode against it).
+> Eureka discovery-server was removed (nothing registered with it). The LMS `ai-scoring-service`
+> calls `GET /api/v1/credit-score/{id}` **through Kong** with `X-Api-Key` (env `SCORING_API_URL`
+> + `SCORING_API_KEY` on the LMS side, validated against `SERVICE_API_KEYS` here) and **fails
+> closed** — the deterministic mock fallback is gone.
 
 ---
 
@@ -286,6 +293,13 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 - Default: `CHALLENGER_TRAFFIC_PCT=0.0` (all traffic to champion)
 - Update live: `PUT /api/v1/crb/routing-config?challengerPct=0.2`
 - Every request logged to `champion_challenger_log`
+- **July 2026:** `compute_hybrid_score` now actually calls the LightGBM model
+  (`models:/AthenaScorer@{champion|challenger}`) for the PD when a `lgbm_features`
+  vector exists in the feature store; response reports `pd_source` and `model_version`.
+  Scorecard logistic remains the fallback. LLM adjustment is capped (`LLM_MAX_ADJUSTMENT`,
+  default ±25) and can never move a score across a band boundary; it no longer affects PD.
+  Thin files (<3 months, no bureau data) return `status=INSUFFICIENT_DATA` — the LMS
+  marks these SKIPPED for manual review. CRB contribution range is now [-100, +150].
 
 ### go-cache (replaces Caffeine)
 - `credit_scores` cache: TTL = 1 hour (scoring-service)

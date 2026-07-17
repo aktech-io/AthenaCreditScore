@@ -22,6 +22,7 @@ class BaseScoreResult:
     category_breakdown: Dict[str, float]
     analysis_period_days: int
     patterns: str
+    months_of_history: int = 0
 
 
 def calculate_base_score(
@@ -182,4 +183,5 @@ def calculate_base_score(
         category_breakdown=category_breakdown,
         analysis_period_days=analysis_period_days,
         patterns=patterns,
+        months_of_history=len(monthly_credits),
     )

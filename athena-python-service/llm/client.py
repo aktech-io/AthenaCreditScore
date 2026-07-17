@@ -17,8 +17,11 @@ class LLMClient:
         self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
 
         if provider == "openai":
+            # A missing key must not crash service startup: the SDK raises on
+            # api_key=None. Calls will fail cleanly and return the 0-adjustment
+            # fallback in get_score_adjustment.
             self.client = openai.AsyncOpenAI(
-                api_key=os.getenv("OPENAI_API_KEY"),
+                api_key=os.getenv("OPENAI_API_KEY") or "unset",
             )
         else:
             # Ollama / vLLM expose an OpenAI-compatible /v1 endpoint

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from typing import Optional
 
 import mlflow
@@ -18,38 +19,76 @@ class LGBMScorer:
     """
     Loads a LightGBM model from the MLflow model registry and runs inference.
     Supports champion/challenger model aliasing.
+
+    Handles both storage formats found in the registry:
+    - models logged with the mlflow.lightgbm flavor (sklearn API, predict_proba)
+    - raw Booster text files registered as artifacts (Booster.predict)
     """
 
     def __init__(self, model_alias: str = "champion"):
         mlflow.set_tracking_uri(MLFLOW_URI)
         self.model_alias = model_alias
         self.model = None
+        self.model_version: Optional[str] = None
         self._load_model()
 
     def _load_model(self):
         try:
-            model_uri = f"models:/{MODEL_NAME}@{self.model_alias}"
-            self.model = mlflow.lightgbm.load_model(model_uri)
-            logger.info("LightGBM model loaded", alias=self.model_alias, uri=model_uri)
+            client = mlflow.tracking.MlflowClient()
+            mv = client.get_model_version_by_alias(MODEL_NAME, self.model_alias)
+            self.model_version = mv.version
         except Exception as exc:
             logger.warning(
-                "LightGBM model not found in registry — scoring will use rule-based fallback",
-                alias=self.model_alias,
-                error=str(exc),
+                "No model version for alias — scoring will use rule-based fallback",
+                alias=self.model_alias, error=str(exc),
+            )
+            self.model = None
+            return
+
+        model_uri = f"models:/{MODEL_NAME}@{self.model_alias}"
+        try:
+            self.model = mlflow.lightgbm.load_model(model_uri)
+            logger.info("LightGBM model loaded (flavor)", alias=self.model_alias, version=self.model_version)
+            return
+        except Exception as exc:
+            logger.info(
+                "lightgbm flavor load failed, trying raw Booster artifact",
+                alias=self.model_alias, error=str(exc),
+            )
+
+        try:
+            import lightgbm as lgb
+            with tempfile.TemporaryDirectory() as tmpdir:
+                local = mlflow.artifacts.download_artifacts(
+                    run_id=mv.run_id, artifact_path="lgbm.txt", dst_path=tmpdir
+                )
+                self.model = lgb.Booster(model_file=local)
+            logger.info("LightGBM model loaded (raw Booster)", alias=self.model_alias, version=self.model_version)
+        except Exception as exc:
+            logger.warning(
+                "LightGBM model not loadable — scoring will use rule-based fallback",
+                alias=self.model_alias, error=str(exc),
             )
             self.model = None
 
     def predict_pd(self, features: dict) -> Optional[float]:
         """
         Predict probability of default (0-1).
-        Returns None if model is not loaded (triggers fallback to rule-based scorer).
+        Returns None if model is not loaded or the feature vector is unusable
+        (triggers fallback to rule-based scorer).
         """
         if self.model is None:
             return None
         try:
-            df = pd.DataFrame([features])
-            proba = self.model.predict_proba(df)
-            pd_prob = float(proba[0, 1])
+            clean = {k: v for k, v in features.items() if not k.startswith("_")}
+            df = pd.DataFrame([clean])
+            if hasattr(self.model, "predict_proba"):
+                pd_prob = float(self.model.predict_proba(df)[0, 1])
+            else:
+                # Booster with binary objective returns P(class=1) directly
+                feature_names = list(self.model.feature_name())
+                df = df.reindex(columns=feature_names)
+                pd_prob = float(self.model.predict(df)[0])
             logger.debug("LightGBM PD prediction", pd=pd_prob, alias=self.model_alias)
             return pd_prob
         except Exception as exc:

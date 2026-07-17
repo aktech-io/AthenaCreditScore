@@ -79,24 +79,9 @@ services:
       postgres:
         condition: service_healthy
 
-  # ─── Service Discovery (for LMS Java services) ────────────────────────────
-  discovery-server:
-    build:
-      context: ./discovery-server
-      dockerfile: Dockerfile
-    container_name: athena-discovery-server
-    restart: unless-stopped
-    ports:
-      - "8761:8761"
-    networks:
-      - athena-net
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:8761/actuator/health | grep -q UP || exit 1" ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-
   # ─── Go Microservices ────────────────────────────────────────────────────
+  # (Eureka discovery-server removed 2026-07: Go services never registered and
+  #  the Java LMS services it served are archived. Addressing is via DNS.)
   user-service:
     build:
       context: .
@@ -269,6 +254,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-athena}:${POSTGRES_PASSWORD:-athena_secret}@postgres:5432/${POSTGRES_DB:-athena_db}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Service-to-service keys (comma-separated). LMS ai-scoring sends one of these.
+      SERVICE_API_KEYS: ${SERVICE_API_KEYS:-dev-key}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}

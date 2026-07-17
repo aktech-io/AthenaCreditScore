@@ -147,7 +147,24 @@ class TestCrbExtractor:
     def test_crb_contribution_clamped(self):
         report = make_crb_report(bureau_score=900, npa_count=0, has_settled_defaults=False)
         metrics = extract_crb_metrics(report)
-        assert 0 <= metrics.crb_contribution <= 150
+        assert -100 <= metrics.crb_contribution <= 150
+
+    def test_adverse_bureau_data_goes_negative(self):
+        report = {
+            "creditReport": {
+                "bureauName": "Metropol",
+                "reportDate": "2026-01-01",
+                "bureauScore": 310,
+                "nonPerformingAccounts": [{"currentBalance": 1000}] * 5,
+                "performingAccountsWithDefault": [{"status": "ACTIVE"}],
+                "enquiriesLast90Days": 8,
+                "creditApplicationsLast12Months": 6,
+            }
+        }
+        metrics = extract_crb_metrics(report)
+        # bureau ~1.7 pts, NPAs -20, active default -30 → clearly negative
+        assert metrics.crb_contribution < 0
+        assert metrics.crb_contribution >= -100
 
 
 # ── PDO Transformer Tests ────────────────────────────────────────────────────
@@ -192,3 +209,46 @@ class TestPDOTransformer:
         score_at_1 = t.transform(0.5).score    # odds = 1
         score_at_2 = t.transform(2/3).score    # pd=2/3 → odds = 2
         assert abs((score_at_1 - score_at_2) - 50) <= 3, "Doubling odds should drop ~50 points"
+
+
+class TestLlmOverlayBounds:
+    """The LLM adjustment is capped and can never move a score across a band."""
+
+    def test_cap_applied(self):
+        from scoring.hybrid_scorer import apply_llm_overlay_bounds, LLM_MAX_ADJUSTMENT
+        # 700 sits mid-band (680-719 "Good"); a +50 request must cap at ±LLM_MAX_ADJUSTMENT
+        applied = apply_llm_overlay_bounds(700, 50)
+        assert applied <= LLM_MAX_ADJUSTMENT
+
+    def test_cannot_cross_band_upward(self):
+        from scoring.hybrid_scorer import apply_llm_overlay_bounds
+        from scoring.pdo_transformer import PDOTransformer
+        quant = 715  # "Good" band 680-719
+        applied = apply_llm_overlay_bounds(quant, 25)
+        assert PDOTransformer._get_band(quant + applied) == PDOTransformer._get_band(quant)
+        assert quant + applied <= 719
+
+    def test_cannot_cross_band_downward(self):
+        from scoring.hybrid_scorer import apply_llm_overlay_bounds
+        from scoring.pdo_transformer import PDOTransformer
+        quant = 682  # "Good" band floor is 680
+        applied = apply_llm_overlay_bounds(quant, -25)
+        assert PDOTransformer._get_band(quant + applied) == PDOTransformer._get_band(quant)
+        assert quant + applied >= 680
+
+    def test_band_bounds_top_and_bottom(self):
+        from scoring.pdo_transformer import PDOTransformer
+        assert PDOTransformer.band_bounds(800) == (780, 850)
+        assert PDOTransformer.band_bounds(310) == (300, 599)
+
+
+class TestDataSufficiency:
+    def test_months_of_history_counted(self):
+        today = date.today()
+        txs = []
+        for m in range(2):  # only 2 distinct months
+            d = today - timedelta(days=30 * m + 1)
+            txs.append({"transaction_date": d, "amount": 50_000,
+                        "transaction_type": "CREDIT", "category": "SALARY"})
+        result = calculate_base_score(txs)
+        assert result.months_of_history == 2

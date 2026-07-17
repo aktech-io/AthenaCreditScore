@@ -20,6 +20,26 @@ JWT_ALGORITHM = "HS256"
 jwt_router = APIRouter()
 
 
+def verify_jwt_or_service_key(
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+) -> dict:
+    """
+    FastAPI dependency for endpoints used by both portals (JWT) and internal
+    services like the Nemo LMS (X-Api-Key). Service-key callers get a synthetic
+    claims dict with the SERVICE role (full read access, no customer scoping).
+    """
+    from auth.service_keys import is_valid_service_key
+
+    if x_api_key is not None:
+        if is_valid_service_key(x_api_key):
+            return {"sub": "service", "roles": ["SERVICE"]}
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    if authorization is None:
+        raise HTTPException(status_code=401, detail="Missing credentials")
+    return verify_jwt(authorization)
+
+
 def verify_jwt(authorization: str = Header(...)) -> dict:
     """FastAPI dependency: extracts and validates the Bearer JWT."""
     if not authorization.startswith("Bearer "):

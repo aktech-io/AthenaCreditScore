@@ -18,12 +18,11 @@ import structlog
 logger = structlog.get_logger(__name__)
 router = APIRouter()
 
-# Simple API-key auth for inbound reports
-VALID_API_KEYS = {"dev-key", "prod-key-placeholder"}
+from auth.service_keys import is_valid_service_key
 
 
 def verify_api_key(x_api_key: str = Header(...)):
-    if x_api_key not in VALID_API_KEYS:
+    if not is_valid_service_key(x_api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_api_key
 
@@ -55,6 +54,10 @@ class ScoreResponse(BaseModel):
     llm_provider: str
     llm_model: str
     scored_at: str
+    status: str = Field(default="SCORED", description="SCORED | INSUFFICIENT_DATA")
+    data_sufficiency: str = Field(default="FULL", description="FULL | PARTIAL | INSUFFICIENT")
+    pd_source: str = Field(default="scorecard", description="lgbm:<alias> or scorecard")
+    model_version: Optional[str] = None
 
 
 # ── Endpoint ────────────────────────────────────────────────────────────────
@@ -133,6 +136,14 @@ async def ingest_credit_report(
     """), {"cid": customer_id})
     transactions = [dict(r._mapping) for r in tx_rows.fetchall()]
 
+    # ── Fetch model feature vector (if computed) ────────────────────────────
+    from features.feature_store import read_features
+    features = None
+    try:
+        features = await read_features(db, customer_id, "lgbm_features")
+    except Exception as exc:
+        logger.warning("Feature store read failed — scorecard fallback", error=str(exc))
+
     # ── Compute hybrid score ─────────────────────────────────────────────────
     customer_name = f"{payload.customer.firstName} {payload.customer.lastName}"
     result = await compute_hybrid_score(
@@ -140,6 +151,7 @@ async def ingest_credit_report(
         customer_name=customer_name,
         transactions=transactions,
         crb_raw_report={"creditReport": crb_data},
+        features=features,
     )
 
     # ── Persist score event ──────────────────────────────────────────────────
@@ -202,4 +214,8 @@ async def ingest_credit_report(
         llm_provider=result.llm_provider,
         llm_model=result.llm_model,
         scored_at=str(date.today()),
+        status=result.status,
+        data_sufficiency=result.data_sufficiency,
+        pd_source=result.pd_source,
+        model_version=result.model_version,
     )

@@ -70,6 +70,16 @@ class PDOTransformer:
                 return label
         return "Poor"
 
+    @staticmethod
+    def band_bounds(score: int) -> tuple[int, int]:
+        """Return the (floor, ceiling) score range of the band containing `score`."""
+        ceiling = 850
+        for floor, _label in _BANDS:
+            if score >= floor:
+                return (max(floor, 300), ceiling)
+            ceiling = floor - 1
+        return (300, ceiling)
+
     def pd_from_score(self, score: int) -> float:
         """Inverse: convert a score back to PD (for display purposes)."""
         odds = math.exp((self.offset - score) / self.factor)
