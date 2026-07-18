@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Optional
+import json
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -36,6 +37,7 @@ class FullReportResponse(BaseModel):
     crb_name: Optional[str]
     bureau_score: Optional[int]
     scored_at: Optional[str]
+    reason_codes: List[Dict[str, str]] = []
 
 
 @router.get("/credit-score/{customer_id}", response_model=ScoreSummaryResponse)
@@ -75,7 +77,7 @@ async def get_full_report(
           cse.final_score, cse.score_band, cse.base_score,
           cse.crb_contribution, cse.llm_adjustment,
           cse.pd_probability, cse.reasoning, cse.scored_at,
-          cr.crb_name, cr.bureau_score
+          cr.crb_name, cr.bureau_score, cse.reason_codes
         FROM credit_score_events cse
         JOIN customers c ON c.customer_id = cse.customer_id
         LEFT JOIN crb_reports cr ON cr.report_id = cse.crb_report_id
@@ -91,6 +93,7 @@ async def get_full_report(
         base_score=r[3], crb_contribution=r[4], llm_adjustment=r[5],
         pd_probability=r[6], reasoning=r[7], scored_at=str(r[8]),
         crb_name=r[9], bureau_score=r[10],
+        reason_codes=(r[11] if isinstance(r[11], list) else json.loads(r[11] or "[]")),
     )
 
 
@@ -101,3 +104,17 @@ def _check_access(claims: dict, customer_id: int):
     is_admin = any(r in roles for r in ("ADMIN", "ANALYST", "VIEWER", "CREDIT_RISK", "SERVICE"))
     if not is_admin and str(token_customer_id) != str(customer_id):
         raise HTTPException(status_code=403, detail="Access denied")
+
+
+@router.post("/credit-score/features/recompute")
+async def recompute_features(
+    db: AsyncSession = Depends(get_db),
+    claims: dict = Depends(verify_jwt_or_service_key),
+):
+    """Batch-recompute lgbm_features vectors (admin/service only)."""
+    roles: List[str] = claims.get("roles", [])
+    if not any(r in roles for r in ("ADMIN", "SERVICE")):
+        raise HTTPException(status_code=403, detail="Admin or service role required")
+    from features.pipeline import recompute_all_features
+    count = await recompute_all_features(db)
+    return {"recomputed": count}

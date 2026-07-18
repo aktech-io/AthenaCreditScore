@@ -38,7 +38,7 @@ async def register_definition(
         INSERT INTO feature_definitions
             (feature_set_name, version, feature_names, description, encoding_config)
         VALUES
-            (:name, :ver, :fnames::jsonb, :desc, :enc::jsonb)
+            (:name, :ver, CAST(:fnames AS jsonb), :desc, CAST(:enc AS jsonb))
         ON CONFLICT (feature_set_name, version)
         DO UPDATE SET
             feature_names   = EXCLUDED.feature_names,
@@ -92,7 +92,7 @@ async def write_features(
         INSERT INTO feature_values
             (customer_id, definition_id, feature_vector, computed_at)
         VALUES
-            (:cid, :did, :fv::jsonb, :dt)
+            (:cid, :did, CAST(:fv AS jsonb), :dt)
         ON CONFLICT (customer_id, definition_id, computed_at)
         DO UPDATE SET feature_vector = EXCLUDED.feature_vector
     """), {

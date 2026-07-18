@@ -177,13 +177,15 @@ Eureka service registry (still Java/Spring Cloud) — kept for LMS Java services
 | `scoring/crb_extractor.py` | Bureau score normalisation, NPA penalty, active default flag → [−100,+150] |
 | `scoring/pdo_transformer.py` | PD → PDO credit score (300–850), inverse function |
 | `scoring/hybrid_scorer.py` | Orchestrator: base + CRB + LLM → PD → PDO |
-| `scoring/lgbm_scorer.py` | LightGBM champion/challenger inference from MLflow |
+| `scoring/lgbm_scorer.py` | LightGBM champion/challenger inference from MLflow (+ isotonic PD calibrator, SHAP `explain()`) |
+| `scoring/reason_codes.py` | Deterministic top-4 adverse-action reason codes (NSxx) — SHAP path + scorecard path |
+| `features/pipeline.py` | Computes/stores `lgbm_features` v1 vectors from loans/repayments/crb_reports |
 | `llm/client.py` | Dual-mode: OpenAI or local Ollama/vLLM (same `openai` package, different `base_url`) |
 | `llm/prompts.py` | Credit analyst prompt → `{"adjustment": int, "reasoning": str}` |
 | `api/credit_reports.py` | Inbound CRB report → score → persist to DB |
 | `api/scoring.py` | `GET /api/v1/credit-score/{customer_id}`, `GET /api/v1/credit-report/{customer_id}` |
-| `mlops/trainer.py` | LightGBM train + SHAP + metrics → MLflow registry |
-| `feedback/loop.py` | Weekly APScheduler: KS/PSI drift → auto-retrain |
+| `mlops/trainer.py` | LightGBM train: OOT 3-way split + isotonic calibration + SHAP + metrics → MLflow registry (never auto-promotes champion) |
+| `feedback/loop.py` | Weekly APScheduler: KS/PSI drift → trains + registers a **challenger** (promotion stays human-approved) |
 | `mcp_server.py` | MCP server with 7 tools for AI agent workflows |
 | `monitoring/metrics.py` | Prometheus counters, histograms, PSI/KS gauges |
 
@@ -241,8 +243,9 @@ GET  /api/v1/credit/score/{customerId}/history  → score history (stub, wires t
 
 ### Python Direct (X-Api-Key: dev-key OR Bearer JWT)
 ```
-POST /api/v1/credit-reports             → ingest CRB report → score → persist
+POST /api/v1/credit-reports             → ingest CRB report → score → persist (optional X-Tenant-Id header)
 GET  /api/v1/credit-score/{customer_id} → latest score from DB
+POST /api/v1/credit-score/features/recompute → batch-recompute lgbm_features vectors (ADMIN/SERVICE)
 GET  /api/v1/credit-report/{customer_id}→ full score breakdown
 ```
 
@@ -300,6 +303,17 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
   default ±25) and can never move a score across a band boundary; it no longer affects PD.
   Thin files (<3 months, no bureau data) return `status=INSUFFICIENT_DATA` — the LMS
   marks these SKIPPED for manual review. CRB contribution range is now [-100, +150].
+- **July 2026 (NemoScore Phases 1/2/4):** registry names are env-driven
+  (`MLFLOW_MODEL_NAME=NemoScorer`, `MLFLOW_EXPERIMENT_NAME=nemoscore-scorer` in compose).
+  `features/pipeline.py` populates `lgbm_features` v1 vectors (computed on scoring miss, or
+  batch via `POST /api/v1/credit-score/features/recompute`). `mlops/trainer.py` does an
+  out-of-time 3-way split + isotonic PD calibration (calibrator logged as an MLflow artifact
+  and applied at inference). The weekly drift loop trains + registers a challenger only —
+  champion promotion is a deliberate human step (`mlflow` alias move). Every score now
+  carries deterministic `reason_codes` (top-4 NSxx adverse-action reasons; SHAP-derived on
+  the ML path, scorecard-deficit-derived on the fallback path) — persisted on
+  `credit_score_events.reason_codes`, in the contract as of `nemoscore-api.yaml` 1.1.0.
+  Scoring tables carry `tenant_id` (default `'nemo'`; ingest honors `X-Tenant-Id`).
 
 ### go-cache (replaces Caffeine)
 - `credit_scores` cache: TTL = 1 hour (scoring-service)

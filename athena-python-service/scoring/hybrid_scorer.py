@@ -10,6 +10,7 @@ from scoring.base_scorer import calculate_base_score, BaseScoreResult
 from scoring.crb_extractor import extract_crb_metrics, CrbMetrics
 from scoring.pdo_transformer import PDOTransformer, PDOResult
 from scoring.lgbm_scorer import get_lgbm_scorer
+from scoring.reason_codes import from_scorecard, from_shap
 from llm.client import LLMClient
 from llm.prompts import build_scoring_prompt
 
@@ -43,6 +44,8 @@ class HybridScoreResult:
     model_version: Optional[str] = None
     data_sufficiency: str = "FULL"       # FULL | PARTIAL | INSUFFICIENT
     status: str = "SCORED"               # SCORED | INSUFFICIENT_DATA
+    # Deterministic top-4 adverse-action reasons: [{"code","description"}, ...]
+    reason_codes: List[Dict[str, str]] = field(default_factory=list)
 
 
 async def compute_hybrid_score(
@@ -91,6 +94,7 @@ async def compute_hybrid_score(
     pd_source = "scorecard"
     model_version: Optional[str] = None
     pd_probability: Optional[float] = None
+    reason_codes: List[Dict[str, str]] = []
 
     if features:
         scorer = get_lgbm_scorer(model_target)
@@ -99,10 +103,18 @@ async def compute_hybrid_score(
             pd_probability = round(ml_pd, 6)
             pd_source = f"lgbm:{model_target}"
             model_version = scorer.model_version
+            shap_contribs = scorer.explain(features)
+            if shap_contribs:
+                reason_codes = from_shap(shap_contribs)
 
     if pd_probability is None:
         intermediate = base_result.base_total + crb_contribution
         pd_probability = _score_to_pd(intermediate)
+
+    # Reason codes must exist on every run (ECOA-style adverse action):
+    # if the ML path produced none, derive them from the scorecard signals.
+    if not reason_codes:
+        reason_codes = from_scorecard(base_result, crb_metrics)
 
     pdo_result: PDOResult = _pdo.transform(pd_probability)
     quant_score = pdo_result.score
@@ -182,6 +194,7 @@ async def compute_hybrid_score(
         model_version=model_version,
         data_sufficiency=data_sufficiency,
         status=status,
+        reason_codes=reason_codes,
     )
 
 

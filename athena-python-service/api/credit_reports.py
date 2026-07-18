@@ -58,6 +58,10 @@ class ScoreResponse(BaseModel):
     data_sufficiency: str = Field(default="FULL", description="FULL | PARTIAL | INSUFFICIENT")
     pd_source: str = Field(default="scorecard", description="lgbm:<alias> or scorecard")
     model_version: Optional[str] = None
+    reason_codes: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Deterministic top-4 adverse-action reasons [{code, description}]",
+    )
 
 
 # ── Endpoint ────────────────────────────────────────────────────────────────
@@ -67,6 +71,7 @@ async def ingest_credit_report(
     payload: CreditReportPayload,
     db: AsyncSession = Depends(get_db),
     _api_key: str = Depends(verify_api_key),
+    x_tenant_id: Optional[str] = Header(None),
 ):
     """
     Accepts an inbound credit report from a partner institution or CRB push.
@@ -77,6 +82,7 @@ async def ingest_credit_report(
     """
     start = time.perf_counter()
 
+    tenant_id = (x_tenant_id or "nemo").strip() or "nemo"
     national_id = payload.customer.nationalId
 
     # ── Upsert customer ──────────────────────────────────────────────────────
@@ -90,8 +96,8 @@ async def ingest_credit_report(
         customer_id = row[0]
     else:
         insert_result = await db.execute(text("""
-            INSERT INTO customers (national_id, first_name, last_name, mobile_number, email, crb_consent)
-            VALUES (:nid, :fn, :ln, :phone, :email, TRUE)
+            INSERT INTO customers (national_id, first_name, last_name, mobile_number, email, crb_consent, tenant_id)
+            VALUES (:nid, :fn, :ln, :phone, :email, TRUE, :tenant)
             RETURNING customer_id
         """), {
             "nid": national_id,
@@ -99,6 +105,7 @@ async def ingest_credit_report(
             "ln": payload.customer.lastName,
             "phone": payload.customer.phone,
             "email": payload.customer.email,
+            "tenant": tenant_id,
         })
         customer_id = insert_result.fetchone()[0]
         await db.commit()
@@ -113,11 +120,12 @@ async def ingest_credit_report(
     import json
     crb_metrics = extract_crb_metrics({"creditReport": crb_data})
     crb_insert = await db.execute(text("""
-        INSERT INTO crb_reports (customer_id, crb_name, report_date, bureau_score, raw_report, extracted_metrics)
-        VALUES (:cid, :name, :date, :score, CAST(:raw AS jsonb), CAST(:metrics AS jsonb))
+        INSERT INTO crb_reports (customer_id, crb_name, report_date, bureau_score, raw_report, extracted_metrics, tenant_id)
+        VALUES (:cid, :name, :date, :score, CAST(:raw AS jsonb), CAST(:metrics AS jsonb), :tenant)
         RETURNING report_id
     """), {
         "cid": customer_id,
+        "tenant": tenant_id,
         "name": bureau_name,
         "date": report_date,
         "score": crb_metrics.bureau_score,
@@ -136,13 +144,13 @@ async def ingest_credit_report(
     """), {"cid": customer_id})
     transactions = [dict(r._mapping) for r in tx_rows.fetchall()]
 
-    # ── Fetch model feature vector (if computed) ────────────────────────────
-    from features.feature_store import read_features
+    # ── Fetch model feature vector (compute on miss) ────────────────────────
+    from features.pipeline import get_or_compute_features
     features = None
     try:
-        features = await read_features(db, customer_id, "lgbm_features")
+        features = await get_or_compute_features(db, customer_id)
     except Exception as exc:
-        logger.warning("Feature store read failed — scorecard fallback", error=str(exc))
+        logger.warning("Feature pipeline failed — scorecard fallback", error=str(exc))
 
     # ── Compute hybrid score ─────────────────────────────────────────────────
     customer_name = f"{payload.customer.firstName} {payload.customer.lastName}"
@@ -159,12 +167,13 @@ async def ingest_credit_report(
         INSERT INTO credit_score_events
           (customer_id, base_score, crb_contribution, llm_adjustment,
            pd_probability, final_score, score_band, reasoning, crb_report_id,
-           llm_provider, llm_model_name, model_target)
+           llm_provider, llm_model_name, model_target, tenant_id, reason_codes)
         VALUES (:cid, :base, :crb, :llm, :pd, :final, :band, :reasoning,
-                :crb_rid, :llm_prov, :llm_mod, :target)
+                :crb_rid, :llm_prov, :llm_mod, :target, :tenant, CAST(:rcodes AS jsonb))
         RETURNING event_id
     """), {
         "cid": customer_id,
+        "tenant": tenant_id,
         "base": result.base_score,
         "crb": result.crb_contribution,
         "llm": result.llm_adjustment,
@@ -176,6 +185,7 @@ async def ingest_credit_report(
         "llm_prov": result.llm_provider,
         "llm_mod": result.llm_model,
         "target": result.model_target,
+        "rcodes": json.dumps(result.reason_codes),
     })
     event_id = event_row.scalar()
 
@@ -218,4 +228,5 @@ async def ingest_credit_report(
         data_sufficiency=result.data_sufficiency,
         pd_source=result.pd_source,
         model_version=result.model_version,
+        reason_codes=result.reason_codes,
     )

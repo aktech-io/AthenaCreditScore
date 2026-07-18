@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, timedelta
-from typing import List, Any
+from typing import Any, List, Optional
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -48,11 +48,12 @@ async def run_feedback_loop():
     async with AsyncSessionLocal() as db:
         # ── KS on recent predictions ─────────────────────────────────────────
         window_start = date.today() - timedelta(days=30)
+        # Note: seeded data uses status 'DEFAULTED'; accept both spellings.
         rows = await db.execute(text("""
-            SELECT cse.pd_probability, CASE WHEN l.status = 'DEFAULT' THEN 1 ELSE 0 END AS actual
+            SELECT cse.pd_probability, CASE WHEN l.status LIKE 'DEFAULT%' THEN 1 ELSE 0 END AS actual
             FROM credit_score_events cse
             JOIN loans l ON l.score_event_id = cse.event_id
-            WHERE cse.scored_at >= :window_start AND l.status IN ('DEFAULT','CLOSED')
+            WHERE cse.scored_at >= :window_start AND l.status IN ('DEFAULT','DEFAULTED','CLOSED')
         """), {"window_start": window_start})
         results = rows.fetchall()
 
@@ -95,18 +96,81 @@ async def run_feedback_loop():
         should_retrain = ks_drop > KS_DROP_THRESHOLD or psi_val > PSI_THRESHOLD
         if should_retrain:
             logger.warning(
-                "Drift detected — retraining triggered",
+                "Drift detected — training challenger",
                 ks_drop=ks_drop, psi=psi_val,
             )
-            # In production: load full feature dataset and call train_and_register
-            # Here we log the trigger — actual training is a background job
             await db.execute(text("""
                 INSERT INTO data_quality_log (batch_date, table_name, field_name, missing_count)
                 VALUES (:dt, 'model_versions', 'retraining_trigger', 1)
             """), {"dt": date.today()})
             await db.commit()
+            await train_challenger(db)
         else:
             logger.info("No retraining needed", ks_drop=ks_drop, psi=psi_val)
+
+
+MIN_TRAINING_ROWS = int(os.getenv("MIN_TRAINING_ROWS", "200"))
+
+
+async def build_training_frame(db) -> Optional["pd.DataFrame"]:
+    """
+    Assemble a training frame: one row per resolved loan (DEFAULT/CLOSED),
+    joining the customer's stored lgbm_features vector with the outcome label.
+
+    Caveat (documented in features/pipeline.py): v1 vectors are as-of-now, not
+    as-of-application, so historical labels carry temporal leakage. Acceptable
+    to keep the pipeline exercised end-to-end; Phase 2 snapshots features at
+    scoring time to fix it.
+    """
+    import pandas as pd
+    from features.pipeline import LGBM_FEATURE_SET, FEATURE_NAMES
+
+    rows = await db.execute(text("""
+        SELECT fv.feature_vector,
+               CASE WHEN l.status LIKE 'DEFAULT%' THEN 1 ELSE 0 END AS default_flag,
+               EXTRACT(EPOCH FROM l.created_at) AS scored_at_ts
+        FROM loans l
+        JOIN feature_values fv ON fv.customer_id = l.customer_id
+        JOIN feature_definitions fd ON fd.definition_id = fv.definition_id
+        WHERE l.status IN ('DEFAULT', 'DEFAULTED', 'CLOSED')
+          AND fd.feature_set_name = :fset
+    """), {"fset": LGBM_FEATURE_SET})
+    records = []
+    for fv, label, ts in rows.fetchall():
+        vec = fv if isinstance(fv, dict) else __import__("json").loads(fv)
+        row = {name: vec.get(name, 0.0) for name in FEATURE_NAMES}
+        row["default_flag"] = int(label)
+        row["scored_at_ts"] = float(ts)
+        records.append(row)
+
+    if len(records) < MIN_TRAINING_ROWS:
+        logger.info("Not enough labeled rows for retraining", rows=len(records))
+        return None
+    df = pd.DataFrame(records)
+    if df["default_flag"].nunique() < 2:
+        logger.info("Single-class label distribution — cannot train")
+        return None
+    return df
+
+
+async def train_challenger(db) -> Optional[str]:
+    """
+    Train and register a CHALLENGER. Promotion to champion is intentionally
+    not automated — it requires human review of the MLflow run (SR 11-7).
+    """
+    import asyncio
+
+    df = await build_training_frame(db)
+    if df is None:
+        return None
+    run_id = await asyncio.to_thread(
+        train_and_register, df, "default_flag", "challenger", None, "scored_at_ts"
+    )
+    logger.warning(
+        "Challenger trained and registered — awaiting human review for promotion",
+        run_id=run_id, rows=len(df),
+    )
+    return run_id
 
 
 def start_scheduler() -> AsyncIOScheduler:

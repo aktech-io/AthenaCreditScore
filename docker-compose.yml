@@ -25,6 +25,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./database/migrations/2026_07_nemoscore_tenant.sql:/docker-entrypoint-initdb.d/02_nemoscore_tenant.sql
+      - ./database/migrations/2026_07_reason_codes.sql:/docker-entrypoint-initdb.d/03_reason_codes.sql
     ports:
       - "5432:5432"
     networks:
@@ -67,7 +69,8 @@ services:
         --host 0.0.0.0
         --port 5000
         --backend-store-uri postgresql://${POSTGRES_USER:-athena}:${POSTGRES_PASSWORD:-athena_secret}@postgres:5432/mlflow_db
-        --default-artifact-root /mlflow/artifacts
+        --default-artifact-root mlflow-artifacts:/artifacts
+        --artifacts-destination /mlflow/artifacts
         --serve-artifacts
     volumes:
       - mlflow_data:/mlflow/artifacts
@@ -254,6 +257,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-athena}:${POSTGRES_PASSWORD:-athena_secret}@postgres:5432/${POSTGRES_DB:-athena_db}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      # NemoScore model registry names. The nemoscore-scorer experiment uses
+      # proxied (mlflow-artifacts:/) storage so host and container clients both work.
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-nemoscore-scorer}
+      MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-NemoScorer}
       # Service-to-service keys (comma-separated). LMS ai-scoring sends one of these.
       SERVICE_API_KEYS: ${SERVICE_API_KEYS:-dev-key}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}

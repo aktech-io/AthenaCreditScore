@@ -29,10 +29,13 @@ class LGBMScorer:
         mlflow.set_tracking_uri(MLFLOW_URI)
         self.model_alias = model_alias
         self.model = None
+        self.calibrator = None
+        self._explainer = None
         self.model_version: Optional[str] = None
         self._load_model()
 
     def _load_model(self):
+        self._explainer = None
         try:
             client = mlflow.tracking.MlflowClient()
             mv = client.get_model_version_by_alias(MODEL_NAME, self.model_alias)
@@ -44,6 +47,8 @@ class LGBMScorer:
             )
             self.model = None
             return
+
+        self._load_calibrator(mv.run_id)
 
         model_uri = f"models:/{MODEL_NAME}@{self.model_alias}"
         try:
@@ -71,6 +76,33 @@ class LGBMScorer:
             )
             self.model = None
 
+    def _load_calibrator(self, run_id: str):
+        """Load the isotonic calibrator logged alongside the model, if any."""
+        self.calibrator = None
+        try:
+            import joblib
+            with tempfile.TemporaryDirectory() as tmpdir:
+                local = mlflow.artifacts.download_artifacts(
+                    run_id=run_id, artifact_path="calibrator.joblib", dst_path=tmpdir
+                )
+                self.calibrator = joblib.load(local)
+            logger.info("PD calibrator loaded", alias=self.model_alias)
+        except Exception:
+            logger.info("No PD calibrator for this model version — raw PD used",
+                        alias=self.model_alias)
+
+    def _frame(self, features: dict) -> pd.DataFrame:
+        """Build a single-row frame aligned to the model's feature order."""
+        clean = {k: v for k, v in features.items() if not k.startswith("_")}
+        df = pd.DataFrame([clean])
+        # LightGBM matches features POSITIONALLY, and JSONB storage does not
+        # preserve key order — always reindex to the model's feature order.
+        if hasattr(self.model, "feature_name_"):
+            df = df.reindex(columns=list(self.model.feature_name_))
+        elif hasattr(self.model, "feature_name"):
+            df = df.reindex(columns=list(self.model.feature_name()))
+        return df
+
     def predict_pd(self, features: dict) -> Optional[float]:
         """
         Predict probability of default (0-1).
@@ -80,19 +112,42 @@ class LGBMScorer:
         if self.model is None:
             return None
         try:
-            clean = {k: v for k, v in features.items() if not k.startswith("_")}
-            df = pd.DataFrame([clean])
+            df = self._frame(features)
             if hasattr(self.model, "predict_proba"):
                 pd_prob = float(self.model.predict_proba(df)[0, 1])
             else:
                 # Booster with binary objective returns P(class=1) directly
-                feature_names = list(self.model.feature_name())
-                df = df.reindex(columns=feature_names)
                 pd_prob = float(self.model.predict(df)[0])
+            if self.calibrator is not None:
+                pd_prob = float(self.calibrator.predict([pd_prob])[0])
             logger.debug("LightGBM PD prediction", pd=pd_prob, alias=self.model_alias)
             return pd_prob
         except Exception as exc:
             logger.error("LightGBM inference failed", error=str(exc))
+            return None
+
+    def explain(self, features: dict) -> Optional[list]:
+        """
+        Per-feature SHAP contributions for one prediction, as
+        [(feature_name, shap_value), ...]. Positive values push PD up.
+        Returns None when the model or SHAP is unavailable.
+        """
+        if self.model is None:
+            return None
+        try:
+            if self._explainer is None:
+                import shap
+                self._explainer = shap.TreeExplainer(self.model)
+            df = self._frame(features)
+            shap_values = self._explainer.shap_values(df)
+            if isinstance(shap_values, list):       # older SHAP: [class0, class1]
+                shap_values = shap_values[1]
+            row = shap_values[0]
+            if getattr(row, "ndim", 1) > 1:         # newer SHAP: (n_features, n_classes)
+                row = row[:, 1]
+            return list(zip(df.columns.tolist(), [float(v) for v in row]))
+        except Exception as exc:
+            logger.warning("SHAP explanation failed", error=str(exc))
             return None
 
     def reload(self):

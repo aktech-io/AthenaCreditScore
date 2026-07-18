@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 info:
   title: NemoScore Scoring API
-  version: "1.0.0"
+  version: "1.1.0"
   description: |
     Versioned contract for the NemoScore credit scoring engine (part of the
     Nemo neobank platform). This is THE contract: the LMS, portal, and any
@@ -104,6 +104,19 @@ components:
       enum: [FULL, PARTIAL, INSUFFICIENT]
       description: FULL ≥3 months transactions; PARTIAL = thin file with bureau data.
 
+    ReasonCode:
+      type: object
+      required: [code, description]
+      description: |
+        Deterministic adverse-action reason (ECOA-style). Codes are stable
+        NSxx identifiers; descriptions are customer-safe display text.
+        Derived from SHAP contributions when the PD came from the ML model,
+        from scorecard dimension deficits + bureau red flags otherwise.
+        Never produced by the LLM.
+      properties:
+        code: { type: string, example: NS03 }
+        description: { type: string, example: Low credit bureau score }
+
     ScoreSummary:
       type: object
       required: [customer_id, final_score, score_band, pd_probability, status]
@@ -141,6 +154,11 @@ components:
           type: string
           nullable: true
           description: MLflow registry version when pd_source is an ML model.
+        reason_codes:
+          type: array
+          maxItems: 4
+          items: { $ref: "#/components/schemas/ReasonCode" }
+          description: Top adverse-action reasons, most severe first. Added in 1.1.0.
 
     FullReport:
       allOf:
