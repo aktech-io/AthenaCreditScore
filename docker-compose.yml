@@ -27,6 +27,7 @@ services:
       - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
       - ./database/migrations/2026_07_nemoscore_tenant.sql:/docker-entrypoint-initdb.d/02_nemoscore_tenant.sql
       - ./database/migrations/2026_07_reason_codes.sql:/docker-entrypoint-initdb.d/03_reason_codes.sql
+      - ./database/migrations/2026_07_mpesa_ingestion.sql:/docker-entrypoint-initdb.d/04_mpesa_ingestion.sql
     ports:
       - "5432:5432"
     networks:

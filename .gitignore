@@ -38,3 +38,7 @@ monitoring/grafana/data/
 # Maven build metadata & Go build output (untracked)
 **/target/maven-status/
 **/bin/
+
+# Convenience symlinks into ../AthenaIntelligentLMS (nothing here builds from them)
+/ekyc-ml-service
+/fraud-ml-service

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 info:
   title: NemoScore Scoring API
-  version: "1.1.0"
+  version: "1.2.0"
   description: |
     Versioned contract for the NemoScore credit scoring engine (part of the
     Nemo neobank platform). This is THE contract: the LMS, portal, and any
@@ -80,6 +80,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ScoreResult" }
         "401": { description: Invalid API key }
+
+  /api/v1/credit-score/statements/mpesa:
+    post:
+      summary: Upload a consumer-permissioned M-Pesa statement (CSV or PDF). Added in 1.2.0.
+      description: |
+        Parses the statement, dedupes (whole file by SHA-256, per transaction
+        by M-Pesa receipt number), persists transactions, and refreshes the
+        customer's ML feature vector. Customers may upload only their own
+        statement; ADMIN/ANALYST/SERVICE may upload for any customer.
+        Fails loudly: an unparseable or empty statement is a 422, never a
+        silently-empty ingest.
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, customer_id]
+              properties:
+                file: { type: string, format: binary }
+                customer_id: { type: integer, format: int64 }
+                pdf_password:
+                  type: string
+                  description: For password-protected PDF statements (usually the national ID number).
+      responses:
+        "200":
+          description: Ingest summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatementUploadResult" }
+        "409": { description: Identical file already ingested }
+        "413": { description: File larger than 10 MB }
+        "422": { description: Not a parseable M-Pesa statement }
 
 components:
   securitySchemes:
@@ -168,6 +202,25 @@ components:
             customer_name: { type: string }
             crb_name: { type: string, nullable: true }
             bureau_score: { type: integer, nullable: true }
+
+    StatementUploadResult:
+      type: object
+      required: [statement_id, customer_id, transactions_ingested, duplicates_skipped]
+      properties:
+        statement_id: { type: integer, format: int64 }
+        customer_id: { type: integer, format: int64 }
+        source_format: { type: string, enum: [CSV, PDF] }
+        period_start: { type: string, format: date, nullable: true }
+        period_end: { type: string, format: date, nullable: true }
+        transactions_ingested: { type: integer }
+        duplicates_skipped:
+          type: integer
+          description: Rows whose receipt number was already ingested (overlapping statements).
+        category_totals:
+          type: object
+          additionalProperties: { type: number }
+          description: Sum of amounts per ML category for newly ingested rows.
+        features_recomputed: { type: boolean }
 
     CreditReportPayload:
       type: object

@@ -179,7 +179,9 @@ Eureka service registry (still Java/Spring Cloud) — kept for LMS Java services
 | `scoring/hybrid_scorer.py` | Orchestrator: base + CRB + LLM → PD → PDO |
 | `scoring/lgbm_scorer.py` | LightGBM champion/challenger inference from MLflow (+ isotonic PD calibrator, SHAP `explain()`) |
 | `scoring/reason_codes.py` | Deterministic top-4 adverse-action reason codes (NSxx) — SHAP path + scorecard path |
-| `features/pipeline.py` | Computes/stores `lgbm_features` v1 vectors from loans/repayments/crb_reports |
+| `features/pipeline.py` | Computes/stores `lgbm_features` v2 vectors from loans/repayments/crb_reports + M-Pesa cash-flow (13 mpesa_* features, 12-month lookback) |
+| `ingestion/mpesa.py` | M-Pesa statement parser (CSV + password-protected PDF via pdfplumber) + transaction categorizer (SALARY/BETTING/FULIZA/SAVINGS/…) |
+| `api/statements.py` | `POST /api/v1/credit-score/statements/mpesa` — consumer-permissioned upload → parse → dedupe → persist → project into `transactions` → refresh features |
 | `llm/client.py` | Dual-mode: OpenAI or local Ollama/vLLM (same `openai` package, different `base_url`) |
 | `llm/prompts.py` | Credit analyst prompt → `{"adjustment": int, "reasoning": str}` |
 | `api/credit_reports.py` | Inbound CRB report → score → persist to DB |
@@ -246,6 +248,7 @@ GET  /api/v1/credit/score/{customerId}/history  → score history (stub, wires t
 POST /api/v1/credit-reports             → ingest CRB report → score → persist (optional X-Tenant-Id header)
 GET  /api/v1/credit-score/{customer_id} → latest score from DB
 POST /api/v1/credit-score/features/recompute → batch-recompute lgbm_features vectors (ADMIN/SERVICE)
+POST /api/v1/credit-score/statements/mpesa → multipart M-Pesa statement upload (customer: own only; ADMIN/ANALYST/SERVICE: any)
 GET  /api/v1/credit-report/{customer_id}→ full score breakdown
 ```
 
@@ -314,6 +317,14 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
   the ML path, scorecard-deficit-derived on the fallback path) — persisted on
   `credit_score_events.reason_codes`, in the contract as of `nemoscore-api.yaml` 1.1.0.
   Scoring tables carry `tenant_id` (default `'nemo'`; ingest honors `X-Tenant-Id`).
+- **July 2026 (NemoScore Phase 2 — M-Pesa ingestion):** consumer-permissioned M-Pesa
+  statement upload (`POST /api/v1/credit-score/statements/mpesa`, CSV or password-protected
+  PDF). Parsed rows land in `mpesa_statements`/`mpesa_transactions` (dedupe: file SHA-256 +
+  receipt number) and are projected into `transactions` (channel `MPESA`) so the base
+  scorecard sees real data. `lgbm_features` bumped to **v2** (+13 `mpesa_*` cash-flow
+  features incl. `has_mpesa_data` missing-data flag). A v1-trained model keeps working —
+  `lgbm_scorer._frame()` reindexes to the model's own feature list. Contract at
+  `nemoscore-api.yaml` **1.2.0**. Migration: `2026_07_mpesa_ingestion.sql`.
 
 ### go-cache (replaces Caffeine)
 - `credit_scores` cache: TTL = 1 hour (scoring-service)
@@ -325,7 +336,7 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 
 ## Test Coverage
 
-### Python (pytest) — 50 tests
+### Python (pytest) — 109 tests
 ```bash
 cd athena-python-service
 pip install -r requirements.txt
@@ -340,6 +351,8 @@ pytest tests/ -v --tb=short
 | TestTargetEncoder | 6 |
 | TestNoData / TestDelinquencyStreaks / TestRollingRates / TestLoanSpacing / TestPaymentBehaviour | 12 |
 | TestMlflowClientCompare | 5 |
+| TestCsvParsing / TestCategorizer / TestPdfDispatch (M-Pesa parser) | 29 |
+| TestNoData / TestCashFlowFeatures (lgbm_features v2) | 10 |
 
 ### Go — TODO
 Go unit tests have not yet been ported from the original Java JUnit 5 suite (32 tests covering JWT, champion-challenger routing, auth, CRB client, error handling). This is a priority item for test coverage parity.
