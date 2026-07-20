@@ -34,6 +34,6 @@ jobs:
           cache: pip
           cache-dependency-path: athena-python-service/requirements.txt
       - name: Install dependencies
-        run: pip install -r athena-python-service/requirements.txt
+        run: pip install -r athena-python-service/requirements.txt pytest
       - name: Run pytest
         run: pytest athena-python-service/tests -v --tb=short
