@@ -1,0 +1,59 @@
+# Nightly logical backup of athena_db + mlflow_db to a dedicated PVC,
+# 7-day retention (pattern lifted from alpa-api/k8s/backup-cronjob.yaml).
+# Restore: gunzip -c <file> | psql -h postgres -U athena <db>
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: nemoscore
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: nemoscore
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  STAMP=$(date +%Y%m%d-%H%M%S)
+                  for db in athena_db mlflow_db; do
+                    PGPASSWORD=$POSTGRES_PASSWORD pg_dump -h postgres -U athena "$db" \
+                      | gzip > "/backups/nemoscore-${db}-${STAMP}.sql.gz"
+                  done
+                  # Keep only last 7 days
+                  find /backups -name "nemoscore-*.sql.gz" -mtime +7 -delete
+                  ls -lh /backups | tail -5
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: nemoscore-secrets
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: backup-pvc

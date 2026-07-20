@@ -1,0 +1,46 @@
+# Public edge (PROD — Contabo shared cluster, ingress-nginx + cert-manager):
+#   api.nemoscore.athenafinance.cloud    -> kong:8000  (scoring contract edge)
+#   portal.nemoscore.athenafinance.cloud -> athena-portal:80
+# Point both DNS A records at the cluster's public IP. TLS via the
+# letsencrypt-prod ClusterIssuer (60-cert-manager-issuer.yaml — already present
+# on the shared cluster).
+#
+# LOCAL k3s staging has no ingress-nginx (Traefik only) — skip this file
+# (`kubectl delete -f 50-ingress.yaml` after an apply -k, or just ignore it:
+# with no nginx controller it is inert). In-cluster consumers use Service DNS
+# (http://kong.nemoscore.svc.cluster.local:8000) and don't need ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nemoscore
+  namespace: nemoscore
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [api.nemoscore.athenafinance.cloud]
+      secretName: api-nemoscore-tls
+    - hosts: [portal.nemoscore.athenafinance.cloud]
+      secretName: portal-nemoscore-tls
+  rules:
+    - host: api.nemoscore.athenafinance.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kong
+                port:
+                  number: 8000
+    - host: portal.nemoscore.athenafinance.cloud
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: athena-portal
+                port:
+                  number: 80

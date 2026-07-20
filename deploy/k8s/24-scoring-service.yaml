@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scoring-service
+  namespace: nemoscore
+spec:
+  selector:
+    app: scoring-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-service
+  namespace: nemoscore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scoring-service
+  template:
+    metadata:
+      labels:
+        app: scoring-service
+    spec:
+      containers:
+        - name: scoring-service
+          image: nemoscore/scoring-service:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: nemoscore-config
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: POSTGRES_PASSWORD }
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: RABBITMQ_URL }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: JWT_SECRET }
+            # Key sent to the python engine (must be one of its SERVICE_API_KEYS)
+            - name: SCORING_ENGINE_API_KEY
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: SCORING_ENGINE_API_KEY }
+            - name: MIFOS_BASE_URL
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: MIFOS_BASE_URL }
+            - name: MIFOS_USERNAME
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: MIFOS_USERNAME }
+            - name: MIFOS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: MIFOS_PASSWORD }
+            - name: TRANSUNION_API_KEY
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: TRANSUNION_API_KEY }
+            - name: METROPOL_API_KEY
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: METROPOL_API_KEY }
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

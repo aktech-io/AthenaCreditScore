@@ -1,0 +1,78 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: nemoscore
+
+# 02-secrets.yaml is created from 02-secrets.example.yaml and is gitignored.
+resources:
+  - 00-namespace.yaml
+  - 01-config.yaml
+  - 02-secrets.yaml
+  - 05-serviceaccount.yaml
+  - 10-postgres.yaml
+  - 11-rabbitmq.yaml
+  - 12-mlflow.yaml
+  - 20-user-service.yaml
+  - 21-customer-service.yaml
+  - 22-media-service.yaml
+  - 23-notification-service.yaml
+  - 24-scoring-service.yaml
+  - 30-python-service.yaml
+  - 40-kong.yaml
+  - 45-portal.yaml
+  - 50-ingress.yaml
+  - 55-backup.yaml
+  - 60-cert-manager-issuer.yaml
+
+# Generated ConfigMaps. The source files are COPIES kept inside deploy/k8s/
+# (kustomize cannot read outside its root):
+#   postgres-init/01..05_*.sql  <- database/schema.sql + database/migrations/*
+#   kong.yml                    <- kong/kong.yml
+# Keep them in sync when the originals change (see README).
+configMapGenerator:
+  - name: postgres-init
+    files:
+      - postgres-init/00_databases.sql
+      - postgres-init/01_schema.sql
+      - postgres-init/02_nemoscore_tenant.sql
+      - postgres-init/03_reason_codes.sql
+      - postgres-init/04_mpesa_ingestion.sql
+      - postgres-init/05_feature_store_alignment.sql
+      - postgres-init/06_go_service_tables.sql
+      - postgres-init/07_admin_bootstrap.sql
+      - postgres-init/08_column_alignment.sql
+  - name: kong-config
+    files:
+      - kong.yml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+# Registry override — one place to change registry/tag. Manifests use short
+# local names (nemoscore/*); these map them to the published GHCR images.
+# For LOCAL k3s staging, comment this block out (or `kustomize edit set image`)
+# so the ctr-imported nemoscore/*:latest images are used directly.
+images:
+  - name: nemoscore/user-service
+    newName: ghcr.io/aktech-io/nemoscore-user-service
+    newTag: latest
+  - name: nemoscore/customer-service
+    newName: ghcr.io/aktech-io/nemoscore-customer-service
+    newTag: latest
+  - name: nemoscore/media-service
+    newName: ghcr.io/aktech-io/nemoscore-media-service
+    newTag: latest
+  - name: nemoscore/notification-service
+    newName: ghcr.io/aktech-io/nemoscore-notification-service
+    newTag: latest
+  - name: nemoscore/scoring-service
+    newName: ghcr.io/aktech-io/nemoscore-scoring-service
+    newTag: latest
+  - name: nemoscore/python-service
+    newName: ghcr.io/aktech-io/nemoscore-python-service
+    newTag: latest
+  - name: nemoscore/mlflow
+    newName: ghcr.io/aktech-io/nemoscore-mlflow
+    newTag: latest
+  - name: nemoscore/portal
+    newName: ghcr.io/aktech-io/nemoscore-portal
+    newTag: latest

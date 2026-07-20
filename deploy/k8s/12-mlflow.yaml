@@ -1,0 +1,83 @@
+# MLflow model registry + tracking (image = mlflow/mlflow.Dockerfile: upstream
+# v2.19.0 + psycopg2). Backend store on postgres (mlflow_db, created by
+# postgres-init 00_databases.sql); artifacts proxied (--serve-artifacts) onto a
+# local-path PVC — same flags as docker-compose.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: nemoscore
+spec:
+  selector:
+    app: mlflow
+  ports:
+    - port: 5000
+      targetPort: 5000
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-artifacts
+  namespace: nemoscore
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: nemoscore
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mlflow
+  template:
+    metadata:
+      labels:
+        app: mlflow
+    spec:
+      containers:
+        - name: mlflow
+          image: nemoscore/mlflow:latest
+          imagePullPolicy: IfNotPresent
+          command: ["mlflow"]
+          args:
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            - --backend-store-uri=$(MLFLOW_BACKEND_STORE_URI)
+            - --default-artifact-root=mlflow-artifacts:/artifacts
+            - --artifacts-destination=/mlflow/artifacts
+            - --serve-artifacts
+          env:
+            - name: MLFLOW_BACKEND_STORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: nemoscore-secrets
+                  key: MLFLOW_BACKEND_STORE_URI
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          volumeMounts:
+            - name: artifacts
+              mountPath: /mlflow/artifacts
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: mlflow-artifacts

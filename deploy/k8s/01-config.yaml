@@ -1,0 +1,45 @@
+# Non-secret configuration shared by the NemoScore services (envFrom on every
+# app Deployment). Secrets (passwords, keys, DSNs) live in nemoscore-secrets
+# (02-secrets.yaml, gitignored — see 02-secrets.example.yaml).
+#
+# The postgres-init ConfigMap (schema + migrations mounted into
+# /docker-entrypoint-initdb.d, same mechanism as docker-compose) is generated
+# by kustomization.yaml from deploy/k8s/postgres-init/*.sql.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nemoscore-config
+  namespace: nemoscore
+data:
+  GIN_MODE: "release"
+  # ── Postgres (password comes from nemoscore-secrets) ──
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_USER: "athena"
+  DB_NAME: "athena_db"
+  # ── JWT ──
+  JWT_EXPIRATION: "86400000"
+  # ── In-cluster service DNS ──
+  MEDIA_SERVICE_URL: "http://media-service:8083"
+  SCORING_ENGINE_URL: "http://athena-python-service:8001"
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  # ── NemoScore model registry ──
+  MLFLOW_EXPERIMENT_NAME: "nemoscore-scorer"
+  MLFLOW_MODEL_NAME: "NemoScorer"
+  # ── LLM overlay: local provider by default (compliance roadmap). With no
+  #    reachable endpoint the python service degrades safely to adjustment 0
+  #    ("LLM analysis unavailable."). LLM_BASE_URL is deliberately NOT set —
+  #    llm/client.py falls back to its own default when the var is absent, and
+  #    an empty string would break the OpenAI SDK client. Point it at a real
+  #    Ollama/vLLM /v1 endpoint (and set LLM_MODEL) to enable the overlay. ──
+  LLM_PROVIDER: "local"
+  # ── PDO score transformation ──
+  PDO: "50"
+  BASE_SCORE: "500"
+  BASE_ODDS: "1.0"
+  # ── Champion/challenger ──
+  CHALLENGER_TRAFFIC_PCT: "0.0"
+  # ── External endpoints (API keys in secrets) ──
+  TRANSUNION_URL: "https://api.transunion.co.ke/v1/credit-report"
+  METROPOL_URL: "https://api.metropol.co.ke/v1/report"
+  NOMINATIM_URL: "https://nominatim.openstreetmap.org"

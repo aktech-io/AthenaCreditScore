@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: "**/go.sum"
+      # go-services/ is a convenience symlink into ../AthenaIntelligentLMS and
+      # dangles in CI; it is not in go.work, so build each module explicitly.
+      - name: Build and test Go modules
+        run: |
+          set -e
+          for mod in pkg/athena user-service customer-service media-service notification-service scoring-service; do
+            echo "=== $mod ==="
+            (cd "$mod" && go build ./... && go test ./...)
+          done
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: athena-python-service/requirements.txt
+      - name: Install dependencies
+        run: pip install -r athena-python-service/requirements.txt
+      - name: Run pytest
+        run: pytest athena-python-service/tests -v --tb=short

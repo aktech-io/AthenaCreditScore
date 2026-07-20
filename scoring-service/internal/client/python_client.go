@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -12,12 +13,21 @@ import (
 
 type PythonClient struct {
 	baseURL    string
+	apiKey     string
 	httpClient *http.Client
 }
 
 func NewPythonClient(baseURL string) *PythonClient {
+	// Service key sent to the python scoring engine (validated against its
+	// SERVICE_API_KEYS). "dev-key" preserves docker-compose dev behaviour;
+	// deployed environments MUST set SCORING_ENGINE_API_KEY to a real key.
+	apiKey := os.Getenv("SCORING_ENGINE_API_KEY")
+	if apiKey == "" {
+		apiKey = "dev-key"
+	}
 	return &PythonClient{
 		baseURL: baseURL,
+		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -54,7 +64,7 @@ func (p *PythonClient) TriggerScoring(authHeader string) (map[string]interface{}
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Api-Key", "dev-key")
+	req.Header.Set("X-Api-Key", p.apiKey)
 	if authHeader != "" {
 		req.Header.Set("Authorization", authHeader)
 	}
@@ -67,7 +77,7 @@ func (p *PythonClient) GetCreditScoreByAPIKey(customerID int64) (map[string]inte
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Api-Key", "dev-key")
+	req.Header.Set("X-Api-Key", p.apiKey)
 	return p.doJSON(req)
 }
 

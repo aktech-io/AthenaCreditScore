@@ -42,3 +42,6 @@ monitoring/grafana/data/
 # Convenience symlinks into ../AthenaIntelligentLMS (nothing here builds from them)
 /ekyc-ml-service
 /fraud-ml-service
+
+# k8s secrets — never commit
+deploy/k8s/02-secrets.yaml

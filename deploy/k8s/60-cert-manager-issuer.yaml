@@ -1,0 +1,25 @@
+# Let's Encrypt ClusterIssuer referenced by 50-ingress.yaml
+# (cert-manager.io/cluster-issuer annotation). ACME HTTP-01 solved through the
+# ingress-nginx controller.
+#
+# On the shared Contabo cluster this ClusterIssuer ALREADY EXISTS (cluster-wide
+# resource used by other namespaces) — applying it again is idempotent as long
+# as the spec matches; it can also simply be skipped there.
+#
+# PREREQUISITE elsewhere: cert-manager must be installed first (provides the
+# ClusterIssuer CRD):
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.15.3/cert-manager.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: tech@aktech.co.ke
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

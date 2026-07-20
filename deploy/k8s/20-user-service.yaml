@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: nemoscore
+spec:
+  selector:
+    app: user-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: nemoscore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: nemoscore/user-service:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: nemoscore-config
+          env:
+            - name: PORT
+              value: "8081"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: POSTGRES_PASSWORD }
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: RABBITMQ_URL }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: JWT_SECRET }
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10

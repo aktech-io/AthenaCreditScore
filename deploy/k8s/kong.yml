@@ -1,0 +1,108 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: athena-auth
+    url: http://user-service:8081
+    routes:
+      - name: auth-route
+        paths:
+          - /api/auth
+        strip_path: false
+
+  - name: athena-user-admin
+    url: http://user-service:8081
+    routes:
+      - name: user-admin-route
+        paths:
+          - /api/v1/admin
+        strip_path: false
+
+  - name: athena-notifications
+    url: http://notification-service:8085
+    routes:
+      - name: notifications-route
+        paths:
+          - /api/v1/notifications
+        strip_path: false
+
+  - name: athena-customers
+    url: http://customer-service:8082
+    routes:
+      - name: customers-route
+        paths:
+          - /api/v1/customers
+          - /api/v1/disputes
+        strip_path: false
+
+  - name: athena-media
+    url: http://media-service:8083
+    routes:
+      - name: media-route
+        paths:
+          - /api/v1/media
+        strip_path: false
+
+  - name: athena-credit-api
+    url: http://athena-python-service:8001
+    routes:
+      - name: credit-score-route
+        paths:
+          - /api/v1/credit-score
+          - /api/v1/credit-report
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  - name: athena-scoring-service
+    url: http://scoring-service:8080
+    routes:
+      - name: scoring-route
+        paths:
+          - /api/v1/credit
+          - /api/v1/crb
+          - /api/v1/dashboard
+          - /api/v1/audit
+          - /api/v1/models
+        strip_path: false
+
+  - name: athena-inbound-reports
+    url: http://athena-python-service:8001
+    routes:
+      - name: inbound-reports-route
+        paths:
+          - /api/v1/credit-reports
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-Api-Key
+
+  - name: athena-thirdparty
+    url: http://scoring-service:8080
+    routes:
+      - name: thirdparty-route
+        paths:
+          - /api/v3p
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-Api-Key
+      - name: rate-limiting
+        config:
+          hour: 1000
+          policy: local
+      - name: file-log
+        config:
+          path: /tmp/kong-access.log
+
+consumers:
+  - username: dev-partner
+    keyauth_credentials:
+      - key: dev-key

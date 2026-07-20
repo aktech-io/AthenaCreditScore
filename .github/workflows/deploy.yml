@@ -1,0 +1,77 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-nemoscore
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          # Go services build from the REPO ROOT context (their Dockerfiles
+          # copy go.work + pkg/athena), matching docker-compose `build:`.
+          - { image: nemoscore-user-service,         context: ., dockerfile: user-service/Dockerfile }
+          - { image: nemoscore-customer-service,     context: ., dockerfile: customer-service/Dockerfile }
+          - { image: nemoscore-media-service,        context: ., dockerfile: media-service/Dockerfile }
+          - { image: nemoscore-notification-service, context: ., dockerfile: notification-service/Dockerfile }
+          - { image: nemoscore-scoring-service,      context: ., dockerfile: scoring-service/Dockerfile }
+          - { image: nemoscore-python-service,       context: ./athena-python-service, dockerfile: athena-python-service/Dockerfile }
+          - { image: nemoscore-mlflow,               context: ./mlflow, dockerfile: mlflow/mlflow.Dockerfile }
+          - { image: nemoscore-portal,               context: ./athena-portal, dockerfile: athena-portal/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/aktech-io/${{ matrix.image }}:latest
+            ghcr.io/aktech-io/${{ matrix.image }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  deploy:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Roll the nemoscore deployments to the freshly-built images
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: deploy
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Deployments use imagePullPolicy=IfNotPresent, so a plain restart
+          # won't re-pull :latest — set the immutable :sha tag instead (pulled
+          # via the ghcr-pull secret). postgres/rabbitmq/kong run stock images
+          # and are not rolled.
+          script: |
+            SHA=${{ github.sha }}
+            K="sudo k3s kubectl -n nemoscore"
+            $K set image deploy/user-service          user-service=ghcr.io/aktech-io/nemoscore-user-service:$SHA
+            $K set image deploy/customer-service      customer-service=ghcr.io/aktech-io/nemoscore-customer-service:$SHA
+            $K set image deploy/media-service         media-service=ghcr.io/aktech-io/nemoscore-media-service:$SHA
+            $K set image deploy/notification-service  notification-service=ghcr.io/aktech-io/nemoscore-notification-service:$SHA
+            $K set image deploy/scoring-service       scoring-service=ghcr.io/aktech-io/nemoscore-scoring-service:$SHA
+            $K set image deploy/athena-python-service athena-python-service=ghcr.io/aktech-io/nemoscore-python-service:$SHA
+            $K set image deploy/mlflow                mlflow=ghcr.io/aktech-io/nemoscore-mlflow:$SHA
+            $K set image deploy/athena-portal         athena-portal=ghcr.io/aktech-io/nemoscore-portal:$SHA
+            for d in user-service customer-service media-service notification-service scoring-service athena-python-service mlflow athena-portal; do
+              $K rollout status deploy/$d --timeout=300s
+            done

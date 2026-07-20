@@ -1,0 +1,65 @@
+# FastAPI scoring engine (LightGBM + scorecard + LLM overlay + MLflow client).
+# LLM_PROVIDER=local with no LLM_BASE_URL set → llm/client.py degrades cleanly
+# to adjustment 0 ("LLM analysis unavailable.") — scoring keeps working.
+apiVersion: v1
+kind: Service
+metadata:
+  name: athena-python-service
+  namespace: nemoscore
+spec:
+  selector:
+    app: athena-python-service
+  ports:
+    - port: 8001
+      targetPort: 8001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: athena-python-service
+  namespace: nemoscore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: athena-python-service
+  template:
+    metadata:
+      labels:
+        app: athena-python-service
+    spec:
+      containers:
+        - name: athena-python-service
+          image: nemoscore/python-service:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: nemoscore-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: DATABASE_URL }
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: RABBITMQ_URL }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: JWT_SECRET }
+            - name: SERVICE_API_KEYS
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: SERVICE_API_KEYS }
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef: { name: nemoscore-secrets, key: OPENAI_API_KEY }
+          ports:
+            - containerPort: 8001
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10

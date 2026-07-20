@@ -1,0 +1,49 @@
+# NemoScore portal (Vite/React SPA served by nginx). Unlike a baked-API-URL
+# SPA, this image's nginx.conf proxies /api/** at RUNTIME to the backend
+# services by DNS name (scoring-service:8080, customer-service:8082,
+# user-service:8081, notification-service:8085, media-service:8083) — those
+# names match the Services in this namespace, so the stock compose-built image
+# works in-cluster unchanged. No rebuild-arg needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: athena-portal
+  namespace: nemoscore
+spec:
+  selector:
+    app: athena-portal
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: athena-portal
+  namespace: nemoscore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: athena-portal
+  template:
+    metadata:
+      labels:
+        app: athena-portal
+    spec:
+      containers:
+        - name: athena-portal
+          image: nemoscore/portal:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
