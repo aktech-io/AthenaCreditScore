@@ -104,6 +104,7 @@ def train_and_register(
     register_as: str = "challenger",
     run_name: Optional[str] = None,
     time_col: Optional[str] = "scored_at_ts",
+    label_mix: Optional[dict] = None,
 ) -> str:
     """
     Train a LightGBM credit scoring model with an out-of-time test set and
@@ -150,6 +151,10 @@ def train_and_register(
         mlflow.log_param("n_train", len(X_train))
         mlflow.log_param("n_valid", len(X_valid))
         mlflow.log_param("n_test", len(X_test))
+        # Label provenance: real LMS repayment outcomes vs loans.status heuristic.
+        if label_mix:
+            mlflow.log_param("n_real_labels", int(label_mix.get("n_real_labels", 0)))
+            mlflow.log_param("n_heuristic_labels", int(label_mix.get("n_heuristic", 0)))
 
         model = lgb.LGBMClassifier(**params)
         model.fit(
@@ -189,11 +194,41 @@ def train_and_register(
         top_features = sorted(shap_dict.items(), key=lambda kv: -kv[1])[:10]
         mlflow.log_param("shap_top_features", json.dumps(top_features[:5]))
 
+        # ── Governance artifacts: PSI baseline + model card ──────────────────
+        from mlops.model_card import calibration_table, render_model_card
+        from monitoring.feature_psi import BASELINE_ARTIFACT, compute_baseline
+
+        feature_baseline = compute_baseline(X_train)
+        card_md = render_model_card(
+            model_name=MODEL_NAME,
+            register_as=register_as,
+            run_id=run.info.run_id,
+            split_kind=split_kind,
+            n_train=len(X_train), n_valid=len(X_valid), n_test=len(X_test),
+            metrics=metrics,
+            calibration=calibration_table(y_test.tolist(), y_prob_cal.tolist()),
+            feature_names=X_train.columns.tolist(),
+            monotone_directions=MONOTONE_DIRECTIONS,
+            shap_top=top_features,
+            label_mix=label_mix,
+            params={k: v for k, v in params.items() if k != "monotone_constraints"},
+        )
+
         # ── Log calibrator + model, register ─────────────────────────────────
         with tempfile.TemporaryDirectory() as tmpdir:
             cal_path = os.path.join(tmpdir, "calibrator.joblib")
             joblib.dump(calibrator, cal_path)
             mlflow.log_artifact(cal_path)
+
+            baseline_path = os.path.join(tmpdir, BASELINE_ARTIFACT)
+            with open(baseline_path, "w") as fh:
+                json.dump(feature_baseline, fh)
+            mlflow.log_artifact(baseline_path)
+
+            card_path = os.path.join(tmpdir, "model_card.md")
+            with open(card_path, "w") as fh:
+                fh.write(card_md)
+            mlflow.log_artifact(card_path)
 
         mlflow.lightgbm.log_model(
             model,

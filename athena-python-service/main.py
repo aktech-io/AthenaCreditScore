@@ -28,7 +28,11 @@ async def lifespan(app: FastAPI):
     # Start APScheduler jobs
     from feedback.loop import start_scheduler
     scheduler = start_scheduler()
+    # LMS loan-outcome listener (training labels) — no-op if RABBITMQ_URL unset
+    from listeners.loan_outcomes import start_loan_outcomes_listener, stop_loan_outcomes_listener
+    loan_outcomes_task = start_loan_outcomes_listener()
     yield
+    await stop_loan_outcomes_listener(loan_outcomes_task)
     scheduler.shutdown(wait=False)
 
 

@@ -30,6 +30,7 @@ services:
       - ./database/migrations/2026_07_reason_codes.sql:/docker-entrypoint-initdb.d/03_reason_codes.sql
       - ./database/migrations/2026_07_mpesa_ingestion.sql:/docker-entrypoint-initdb.d/04_mpesa_ingestion.sql
       - ./database/migrations/2026_07_score_event_status.sql:/docker-entrypoint-initdb.d/05_score_event_status.sql
+      - ./database/migrations/2026_07_training_labels.sql:/docker-entrypoint-initdb.d/06_training_labels.sql
     ports:
       - "5432:5432"
     networks:
