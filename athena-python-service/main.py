@@ -13,6 +13,8 @@ from auth.jwt_handler import jwt_router
 from api.credit_reports import router as credit_reports_router
 from api.scoring import router as scoring_router
 from api.statements import router as statements_router
+from api.decisioning import router as decisioning_router
+from api.simulator import router as simulator_router
 from monitoring.metrics import metrics_router
 from db.database import init_db
 
@@ -52,6 +54,8 @@ app.include_router(jwt_router, prefix="/auth", tags=["Auth"])
 app.include_router(credit_reports_router, prefix="/api/v1", tags=["Credit Reports"])
 app.include_router(scoring_router, prefix="/api/v1", tags=["Scoring"])
 app.include_router(statements_router, prefix="/api/v1", tags=["Statements"])
+app.include_router(decisioning_router, prefix="/api/v1", tags=["Decisioning"])
+app.include_router(simulator_router, prefix="/api/v1", tags=["Simulator"])
 app.include_router(metrics_router, tags=["Metrics"])
 
 
