@@ -21,7 +21,7 @@ jobs:
           set -e
           for mod in pkg/athena user-service customer-service media-service notification-service scoring-service; do
             echo "=== $mod ==="
-            (cd "$mod" && go build ./... && go test ./...)
+            (cd "$mod" && go build ./... && go test -race ./...)
           done
 
   python:

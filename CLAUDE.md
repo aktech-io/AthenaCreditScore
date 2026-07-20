@@ -355,26 +355,30 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 
 ## Test Coverage
 
-### Python (pytest) — 109 tests
+### Python (pytest) — 203 tests
 ```bash
 cd athena-python-service
 pip install -r requirements.txt
-pytest tests/ -v --tb=short
+python -m pytest tests/ -v --tb=short
 ```
-| Class | Tests |
-|---|---|
-| TestBaseScorer | 5 |
-| TestCrbExtractor | 5 |
-| TestPDOTransformer | 6 |
-| TestSectorMapper | 10 |
-| TestTargetEncoder | 6 |
-| TestNoData / TestDelinquencyStreaks / TestRollingRates / TestLoanSpacing / TestPaymentBehaviour | 12 |
-| TestMlflowClientCompare | 5 |
-| TestCsvParsing / TestCategorizer / TestPdfDispatch (M-Pesa parser) | 29 |
-| TestNoData / TestCashFlowFeatures (lgbm_features v2) | 10 |
+Suites: `test_scoring.py` (scorecard, CRB extractor, PDO), `test_cleansing.py`,
+`test_performance_mlflow.py`, `test_reason_codes.py`, `test_mpesa_ingestion.py` /
+`test_mpesa_features.py` (Phase 2), `test_decisioning.py` / `test_simulator.py` (Phase 4),
+`test_loan_outcomes.py` / `test_model_card.py` / `test_feature_psi.py` (label loop + governance).
 
-### Go — TODO
-Go unit tests have not yet been ported from the original Java JUnit 5 suite (32 tests covering JWT, champion-challenger routing, auth, CRB client, error handling). This is a priority item for test coverage parity.
+> The `athena-python-service` container has **no bind mount** — `docker exec … pytest` tests
+> the baked image, not the working tree. Test working-tree code with an ephemeral container:
+> `docker run --rm --network athena-net -v $PWD/athena-python-service:/app:ro …`
+
+### Go — 44 tests across 6 modules
+```bash
+for mod in pkg/athena user-service customer-service media-service notification-service scoring-service; do
+  (cd "$mod" && go test -race ./...)
+done
+```
+Ported from the original Java JUnit 5 suite (commit `6d30e87`): JWT, middleware, error handling,
+user-service auth handlers (incl. OTP flow), media path-traversal protection, scoring-service
+client + champion-challenger routing (race-clean). CI runs with `-race`.
 
 ### Load Test
 ```bash
@@ -449,23 +453,34 @@ All 5 microservices converted from Java (Spring Boot) to Go (Gin + GORM):
 
 ## Outstanding / Next Steps
 
-### Phase 8 — Documentation
-- [ ] Finalize `docs/whitepaper.md` (sections 1–4, 8, 10–13 not yet written)
-- [ ] Finalize `docs/build_prompts.md`
+> **The authoritative roadmap is `docs/nemoscore-audit.md` §6.** Done: Phases 0–1 (honest
+> scoring, contract), Phase 2 M-Pesa ingestion + training-label loop, Phase 3 governance
+> (model card, feature PSI, human-gated promotion), Phase 4 decisioning (pricing,
+> affordability, simulator, reason codes), Go test port, customer-auth bypass fix.
 
-### Stubs to Wire
-- [x] `GET /api/v1/credit/score/{customerId}/history` — wired to `credit_score_events` ✅
-- [x] `GET /api/v1/customers/{customerId}` — wired to `customers` + `credit_score_events` join ✅
-- [x] Consent persistence — persists to `consents` table ✅
+### Remaining roadmap
+- [ ] Score-change alerts wired end-to-end (Phase 4)
+- [ ] Collections-priority score for the LMS collections-service (Phase 4)
+- [ ] Bank-statement ingestion for SMEs + feature expansion (Phase 2 remnant)
+- [ ] Phase 5 compliance & security pack (DPA deletion flow, DPIA, consent granularity,
+      `LLM_PROVIDER=local` default, CBK DCP artifacts, secrets mgmt, admin TOTP enforcement,
+      append-only audit log)
+- [ ] Contract-test package against `docs/nemoscore-api.yaml`
 
-### Minor Linting
+### Deploy follow-ups (Contabo)
+- [ ] Configure SMS in notification-service **before** deploying the auth fix (customers
+      can't receive OTPs otherwise; `OTP_DEV_LOG=true` is dev-only)
+- [ ] Apply `2026_07_training_labels.sql` + `2026_07_customer_otp.sql` to live nemoscore
+      postgres by hand (initdb won't rerun) and copy into `deploy/k8s/postgres-init/`
+- [ ] Rotate `ghcr-pull` to a read:packages-only PAT; change prod admin password
+- [ ] Train + promote a model on Contabo MLflow (prod still `pd_source=scorecard`)
+
+### Minor
+- [ ] Score history chart in admin `CustomerSearchPage` slide-in panel
 - [ ] CSS compatibility warnings in portal build
-
-### Features Not Yet Built
-- [ ] Score history chart in admin `CustomerSearchPage` slide-in panel (data endpoint exists as stub)
-- [ ] Data deletion flow (GDPR/DPA — marked as "future automation" in whitepaper §9.3)
-- [ ] TOTP second factor for admin login (configurable per-admin, not yet enforced in auth handler)
-- [ ] Port Java JUnit 5 tests to Go (32 tests — see Test Coverage section)
+- [ ] Finalize `docs/whitepaper.md` and `docs/build_prompts.md`
+- [ ] `training_labels` UNIQUE is `(loan_ref, event_type)` without `tenant_id` — fine
+      single-tenant, would clobber across tenants
 
 ---
 
