@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 """
-Consumer-permissioned M-Pesa statement upload (NemoScore Phase 2).
+Consumer-permissioned statement uploads (NemoScore Phase 2).
 
 POST /api/v1/credit-score/statements/mpesa
   multipart: file (CSV or PDF), customer_id, optional pdf_password
+POST /api/v1/credit-score/statements/bank
+  multipart: file (CSV or PDF), customer_id, optional bank_name, optional pdf_password
 
-Flow: parse → dedupe (whole file by sha256, per-row by receipt number) →
-persist mpesa_statements/mpesa_transactions → project new rows into the
-generic `transactions` table (channel MPESA) so the base scorecard sees the
-same data → recompute the customer's lgbm_features vector.
+Flow (both): parse → dedupe (whole file by sha256; per-row by receipt number
+for M-Pesa, by deterministic row_hash for bank statements) → persist
+{mpesa,bank}_statements/{mpesa,bank}_transactions → project new rows into the
+generic `transactions` table (channel MPESA / BANK) so the base scorecard sees
+the same data → recompute the customer's lgbm_features vector.
 
 Auth: customers may upload their own statement only; ADMIN/ANALYST/SERVICE
 may upload for any customer. X-Tenant-Id honored as elsewhere.
@@ -27,6 +30,7 @@ import structlog
 
 from auth.jwt_handler import verify_jwt_or_service_key
 from db.database import get_db
+from ingestion import bank
 from ingestion.mpesa import PROJECTION_CATEGORY, StatementParseError, parse_statement
 
 logger = structlog.get_logger(__name__)
@@ -168,6 +172,138 @@ async def upload_mpesa_statement(
     return StatementUploadResponse(
         statement_id=statement_id,
         customer_id=customer_id,
+        source_format=parsed.source_format,
+        period_start=str(parsed.period_start) if parsed.period_start else None,
+        period_end=str(parsed.period_end) if parsed.period_end else None,
+        transactions_ingested=ingested,
+        duplicates_skipped=duplicates,
+        category_totals={k: round(v, 2) for k, v in category_totals.most_common()},
+        features_recomputed=features_recomputed,
+    )
+
+
+class BankStatementUploadResponse(StatementUploadResponse):
+    bank_name: Optional[str]
+
+
+@router.post("/credit-score/statements/bank", response_model=BankStatementUploadResponse)
+async def upload_bank_statement(
+    file: UploadFile = File(...),
+    customer_id: int = Form(...),
+    bank_name: Optional[str] = Form(None),
+    pdf_password: Optional[str] = Form(None),
+    x_tenant_id: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+    claims: dict = Depends(verify_jwt_or_service_key),
+):
+    _check_upload_access(claims, customer_id)
+    tenant_id = (x_tenant_id or "nemo").strip() or "nemo"
+    bank_name = (bank_name or "").strip()[:100] or None
+
+    data = await file.read()
+    if len(data) > MAX_STATEMENT_BYTES:
+        raise HTTPException(status_code=413, detail="Statement file too large (max 10 MB)")
+
+    cust = await db.execute(
+        text("SELECT 1 FROM customers WHERE customer_id = :cid"), {"cid": customer_id}
+    )
+    if not cust.fetchone():
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    file_sha256 = hashlib.sha256(data).hexdigest()
+    dup = await db.execute(text("""
+        SELECT statement_id FROM bank_statements
+        WHERE customer_id = :cid AND file_sha256 = :sha
+    """), {"cid": customer_id, "sha": file_sha256})
+    existing = dup.fetchone()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This exact file was already ingested (statement_id={existing[0]})",
+        )
+
+    try:
+        parsed = bank.parse_statement(data, filename=file.filename or "", password=pdf_password)
+    except StatementParseError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    stmt_row = await db.execute(text("""
+        INSERT INTO bank_statements
+            (customer_id, bank_name, source_format, file_sha256,
+             period_start, period_end, tenant_id)
+        VALUES (:cid, :bank, :fmt, :sha, :pstart, :pend, :tenant)
+        RETURNING statement_id
+    """), {
+        "cid": customer_id, "bank": bank_name, "fmt": parsed.source_format,
+        "sha": file_sha256, "pstart": parsed.period_start, "pend": parsed.period_end,
+        "tenant": tenant_id,
+    })
+    statement_id = stmt_row.fetchone()[0]
+
+    ingested = 0
+    duplicates = 0
+    category_totals: Counter = Counter()
+    for t in parsed.transactions:
+        row = await db.execute(text("""
+            INSERT INTO bank_transactions
+                (statement_id, customer_id, row_hash, txn_time, details,
+                 category, direction, amount, balance, reference, tenant_id)
+            VALUES (:sid, :cid, :hash, :time, :details,
+                    :cat, :dir, :amount, :balance, :ref, :tenant)
+            ON CONFLICT (customer_id, row_hash) DO NOTHING
+            RETURNING txn_id
+        """), {
+            "sid": statement_id, "cid": customer_id, "hash": t.row_hash,
+            "time": t.txn_time, "details": t.details, "cat": t.category,
+            "dir": t.direction, "amount": t.amount, "balance": t.balance,
+            "ref": t.reference, "tenant": tenant_id,
+        })
+        if row.fetchone() is None:
+            duplicates += 1  # row already ingested via an overlapping statement
+            continue
+        ingested += 1
+        category_totals[t.category] += t.amount
+
+        # Projection: the base scorecard reads `transactions`. Row-hash
+        # dedupe above guarantees we never project the same row twice.
+        await db.execute(text("""
+            INSERT INTO transactions
+                (customer_id, transaction_date, amount, transaction_type,
+                 category, description, channel, balance_after, external_ref)
+            VALUES (:cid, :date, :amount, :type, :cat, :desc, 'BANK', :balance, :ref)
+        """), {
+            "cid": customer_id, "date": t.txn_time.date(), "amount": t.amount,
+            "type": "CREDIT" if t.direction == "IN" else "DEBIT",
+            "cat": bank.PROJECTION_CATEGORY.get(t.category, "OTHER"),
+            "desc": t.details[:500], "balance": t.balance,
+            "ref": f"BANK:{t.row_hash[:16]}",
+        })
+
+    await db.execute(text("""
+        UPDATE bank_statements
+        SET n_transactions = :n, n_duplicates = :d
+        WHERE statement_id = :sid
+    """), {"n": ingested, "d": duplicates, "sid": statement_id})
+    await db.commit()
+
+    features_recomputed = False
+    try:
+        from features.pipeline import compute_and_store_features
+        features_recomputed = await compute_and_store_features(db, customer_id) is not None
+    except Exception as exc:
+        # Feature refresh is best-effort here; the vector is also recomputed
+        # on the next scoring miss. The ingest itself has already committed.
+        logger.warning("Feature recompute after ingest failed", customer_id=customer_id, error=str(exc))
+
+    logger.info(
+        "Bank statement ingested",
+        customer_id=customer_id, statement_id=statement_id, bank_name=bank_name,
+        ingested=ingested, duplicates=duplicates, fmt=parsed.source_format,
+    )
+    return BankStatementUploadResponse(
+        statement_id=statement_id,
+        customer_id=customer_id,
+        bank_name=bank_name,
         source_format=parsed.source_format,
         period_start=str(parsed.period_start) if parsed.period_start else None,
         period_end=str(parsed.period_end) if parsed.period_end else None,

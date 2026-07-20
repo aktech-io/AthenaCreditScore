@@ -3,10 +3,10 @@ from __future__ import annotations
 """
 Feature pipeline for the LightGBM scorer.
 
-Computes the `lgbm_features` v2 vector per customer from the operational
-tables (loans, repayments, crb_reports, mpesa_transactions) and persists it
-to the feature store, so `compute_hybrid_score` can use the registered ML
-model for the PD.
+Computes the `lgbm_features` v3 vector per customer from the operational
+tables (loans, repayments, crb_reports, mpesa_transactions,
+bank_transactions) and persists it to the feature store, so
+`compute_hybrid_score` can use the registered ML model for the PD.
 
 v2 (Phase 2) adds 13 M-Pesa cash-flow features computed from ingested
 statements (ingestion/mpesa.py) over a 12-month lookback. Customers without
@@ -14,6 +14,11 @@ statement data get zero-defaults plus `has_mpesa_data = 0` so the model can
 tell "missing" from "truly zero". A model trained on v1 features still works:
 scoring/lgbm_scorer.py reindexes the vector to the model's own feature list,
 dropping columns it was not trained on.
+
+v3 (Phase 2, SME) adds 10 bank-statement cash-flow features from ingested SME
+bank statements (ingestion/bank.py), same 12-month lookback and same
+missing-data convention (`has_bank_data = 0` + zero-defaults). v1/v2-trained
+models keep working via the same reindexing.
 
 Remaining limitations:
 - capital_growth_rate / profit_margin default to 0.0 — SME financials are not
@@ -37,9 +42,10 @@ from features.feature_store import read_features, register_definition, write_fea
 logger = structlog.get_logger(__name__)
 
 LGBM_FEATURE_SET = "lgbm_features"
-LGBM_FEATURE_VERSION = "2"
+LGBM_FEATURE_VERSION = "3"
 
 MPESA_LOOKBACK_DAYS = 365
+BANK_LOOKBACK_DAYS = 365
 
 # Must match the training frame / registered model feature names.
 FEATURE_NAMES = [
@@ -68,6 +74,17 @@ FEATURE_NAMES = [
     "mpesa_savings_ratio",
     "mpesa_loan_repay_ratio",
     "mpesa_fuliza_draw_count",
+    # v3: SME bank-statement cash-flow features (12-month lookback)
+    "has_bank_data",
+    "bank_months_observed",
+    "bank_monthly_inflow_avg",
+    "bank_inflow_cv",
+    "bank_outflow_inflow_ratio",
+    "bank_payroll_ratio",
+    "bank_supplier_ratio",
+    "bank_charges_ratio",
+    "bank_tax_paid_flag",
+    "bank_loan_repay_ratio",
 ]
 
 _MPESA_DEFAULTS: Dict[str, float] = {
@@ -84,6 +101,19 @@ _MPESA_DEFAULTS: Dict[str, float] = {
     "mpesa_savings_ratio": 0.0,
     "mpesa_loan_repay_ratio": 0.0,
     "mpesa_fuliza_draw_count": 0,
+}
+
+_BANK_DEFAULTS: Dict[str, float] = {
+    "has_bank_data": 0,
+    "bank_months_observed": 0,
+    "bank_monthly_inflow_avg": 0.0,
+    "bank_inflow_cv": 0.0,
+    "bank_outflow_inflow_ratio": 0.0,
+    "bank_payroll_ratio": 0.0,
+    "bank_supplier_ratio": 0.0,
+    "bank_charges_ratio": 0.0,
+    "bank_tax_paid_flag": 0,
+    "bank_loan_repay_ratio": 0.0,
 }
 
 # Balance below this (KES) at end of a transaction counts as a low-balance
@@ -104,7 +134,7 @@ async def _ensure_definition(db: AsyncSession) -> None:
         feature_set_name=LGBM_FEATURE_SET,
         version=LGBM_FEATURE_VERSION,
         feature_names=FEATURE_NAMES,
-        description="LightGBM scorer input vector (loan performance + bureau + M-Pesa cash flow)",
+        description="LightGBM scorer input vector (loan performance + bureau + M-Pesa + bank cash flow)",
     )
     _definition_registered = True
 
@@ -184,11 +214,72 @@ def mpesa_features_from_rows(txns: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+async def _compute_bank_features(db: AsyncSession, customer_id: int) -> Dict[str, Any]:
+    """
+    SME cash-flow features from ingested bank statements (12-month lookback).
+    Returns _BANK_DEFAULTS (has_bank_data=0) when no statement data exists.
+    """
+    since = date.today() - timedelta(days=BANK_LOOKBACK_DAYS)
+    rows = await db.execute(text("""
+        SELECT txn_time, category, direction, amount, balance
+        FROM bank_transactions
+        WHERE customer_id = :cid AND txn_time >= :since
+        ORDER BY txn_time
+    """), {"cid": customer_id, "since": since})
+    return bank_features_from_rows([dict(r._mapping) for r in rows.fetchall()])
+
+
+def bank_features_from_rows(txns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Pure computation over ordered bank_transactions rows (also unit-tested)."""
+    if not txns:
+        return dict(_BANK_DEFAULTS)
+
+    monthly_inflow: Dict[str, float] = {}
+    total_in = total_out = 0.0
+    out_by_cat: Dict[str, float] = {}
+
+    for t in txns:
+        amount = float(t["amount"] or 0)
+        month = t["txn_time"].strftime("%Y-%m")
+        cat = t["category"]
+        if t["direction"] == "IN":
+            total_in += amount
+            # Loan disbursements are liquidity moves, not revenue.
+            if cat != "LOAN_DISBURSEMENT":
+                monthly_inflow[month] = monthly_inflow.get(month, 0.0) + amount
+        else:
+            total_out += amount
+            out_by_cat[cat] = out_by_cat.get(cat, 0.0) + amount
+
+    first, last = txns[0]["txn_time"], txns[-1]["txn_time"]
+    months_observed = (last.year - first.year) * 12 + (last.month - first.month) + 1
+
+    inflows = list(monthly_inflow.values())
+    inflow_avg = mean(inflows) if inflows else 0.0
+    inflow_cv = round(stdev(inflows) / inflow_avg, 4) if len(inflows) >= 2 and inflow_avg > 0 else 0.0
+
+    def out_ratio(*cats: str) -> float:
+        return round(sum(out_by_cat.get(c, 0.0) for c in cats) / total_out, 4) if total_out > 0 else 0.0
+
+    return {
+        "has_bank_data": 1,
+        "bank_months_observed": months_observed,
+        "bank_monthly_inflow_avg": round(inflow_avg, 2),
+        "bank_inflow_cv": inflow_cv,
+        "bank_outflow_inflow_ratio": round(total_out / total_in, 4) if total_in > 0 else 0.0,
+        "bank_payroll_ratio": out_ratio("PAYROLL"),
+        "bank_supplier_ratio": out_ratio("SUPPLIER_PAYMENT"),
+        "bank_charges_ratio": out_ratio("BANK_CHARGES"),
+        "bank_tax_paid_flag": 1 if out_by_cat.get("TAX", 0.0) > 0 else 0,
+        "bank_loan_repay_ratio": out_ratio("LOAN_REPAYMENT"),
+    }
+
+
 async def compute_customer_features(db: AsyncSession, customer_id: int) -> Optional[Dict[str, Any]]:
     """
-    Compute the lgbm_features v2 vector for one customer.
-    Returns None when there is no loan history, no bureau data AND no M-Pesa
-    data — an all-defaults vector would be meaningless to the model.
+    Compute the lgbm_features v3 vector for one customer.
+    Returns None when there is no loan history, no bureau data, no M-Pesa data
+    AND no bank data — an all-defaults vector would be meaningless to the model.
     """
     loan_rows = await db.execute(text("""
         SELECT loan_id, disbursement_date, maturity_date, status
@@ -212,8 +303,9 @@ async def compute_customer_features(db: AsyncSession, customer_id: int) -> Optio
     crb = crb_row.fetchone()
 
     mpesa = await _compute_mpesa_features(db, customer_id)
+    bank = await _compute_bank_features(db, customer_id)
 
-    if not loans and not crb and not mpesa["has_mpesa_data"]:
+    if not loans and not crb and not mpesa["has_mpesa_data"] and not bank["has_bank_data"]:
         return None
 
     # ── Loan spacing ────────────────────────────────────────────────────────
@@ -280,6 +372,7 @@ async def compute_customer_features(db: AsyncSession, customer_id: int) -> Optio
         "bureau_score": bureau_score,
         "open_npa_accounts": open_npa_accounts,
         **mpesa,
+        **bank,
     }
 
 
@@ -310,6 +403,7 @@ async def recompute_all_features(db: AsyncSession, limit: int = 10_000) -> int:
         WHERE EXISTS (SELECT 1 FROM loans l WHERE l.customer_id = c.customer_id)
            OR EXISTS (SELECT 1 FROM crb_reports r WHERE r.customer_id = c.customer_id)
            OR EXISTS (SELECT 1 FROM mpesa_transactions m WHERE m.customer_id = c.customer_id)
+           OR EXISTS (SELECT 1 FROM bank_transactions b WHERE b.customer_id = c.customer_id)
         ORDER BY c.customer_id LIMIT :lim
     """), {"lim": limit})
     ids = [r[0] for r in rows.fetchall()]
