@@ -31,6 +31,7 @@ services:
       - ./database/migrations/2026_07_mpesa_ingestion.sql:/docker-entrypoint-initdb.d/04_mpesa_ingestion.sql
       - ./database/migrations/2026_07_score_event_status.sql:/docker-entrypoint-initdb.d/05_score_event_status.sql
       - ./database/migrations/2026_07_training_labels.sql:/docker-entrypoint-initdb.d/06_training_labels.sql
+      - ./database/migrations/2026_07_customer_otp.sql:/docker-entrypoint-initdb.d/07_customer_otp.sql
     ports:
       - "5432:5432"
     networks:
@@ -104,6 +105,9 @@ services:
       DB_NAME: ${POSTGRES_DB:-athena_db}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-athena}:${RABBITMQ_PASS:-athena_secret}@rabbitmq:5672/
       JWT_SECRET: ${JWT_SECRET}
+      # Dev harness only: prints customer sign-in codes to the service log because
+      # no SMS provider is wired locally. Never set this in a deployed environment.
+      OTP_DEV_LOG: "true"
       JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
     ports:
       - "8081:8081"

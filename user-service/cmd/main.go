@@ -61,12 +61,13 @@ func main() {
 	// Services
 	policyService := service.NewPasswordPolicyService(policyRepo)
 	authService := service.NewAuthService(userRepo, roleRepo, jwtUtil, policyService)
+	otpService := service.NewOTPService(db)
 
 	// Seed data
 	seed.Initialize(roleRepo, groupRepo, policyRepo)
 
 	// Handlers
-	authHandler := handler.NewAuthHandler(adminUserRepo, jwtUtil, authService, db)
+	authHandler := handler.NewAuthHandler(adminUserRepo, jwtUtil, authService, otpService, rabbitClient, db)
 	userMgmtHandler := handler.NewUserManagementHandler(userRepo, groupRepo, roleRepo, invitationRepo, rabbitClient)
 	groupHandler := handler.NewGroupHandler(groupRepo, roleRepo)
 	roleHandler := handler.NewRoleHandler(roleRepo)

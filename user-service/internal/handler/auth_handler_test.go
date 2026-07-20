@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/athena/pkg/jwt"
 	"github.com/athena/user-service/internal/repository"
-	"github.com/glebarez/sqlite"
+	"github.com/athena/user-service/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -25,7 +28,7 @@ func init() {
 // newAuthRig builds an AuthHandler backed by an in-memory sqlite DB seeded
 // with one admin ("admin"/"admin123", role ADMIN) and one customer
 // (id 1001, phone +254700000001).
-func newAuthRig(t *testing.T) (*gin.Engine, *jwt.JWTUtil) {
+func newAuthRig(t *testing.T) *authRig {
 	t.Helper()
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
@@ -49,6 +52,16 @@ func newAuthRig(t *testing.T) (*gin.Engine, *jwt.JWTUtil) {
 		mobile_number TEXT, email TEXT)`).Error; err != nil {
 		t.Fatalf("create customers: %v", err)
 	}
+	if err := db.Exec(`CREATE TABLE customer_otps (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		phone TEXT NOT NULL,
+		otp_hash TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		attempts SMALLINT NOT NULL DEFAULT 0,
+		consumed_at DATETIME,
+		created_at DATETIME NOT NULL)`).Error; err != nil {
+		t.Fatalf("create customer_otps: %v", err)
+	}
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.MinCost)
 	if err := db.Exec(
@@ -68,10 +81,21 @@ func newAuthRig(t *testing.T) (*gin.Engine, *jwt.JWTUtil) {
 		t.Fatalf("jwt.New: %v", err)
 	}
 
-	h := NewAuthHandler(repository.NewAdminUserRepository(db), jwtUtil, nil, db)
+	otpSvc := service.NewOTPService(db)
+	h := NewAuthHandler(repository.NewAdminUserRepository(db), jwtUtil, nil, otpSvc, nil, db)
 	r := gin.New()
 	h.RegisterRoutes(r.Group("/api/auth"))
-	return r, jwtUtil
+	return &authRig{engine: r, jwt: jwtUtil, db: db, otp: otpSvc}
+}
+
+// authRig bundles the pieces a test needs. The OTP service is exposed because the
+// plaintext code is never stored — only its bcrypt hash — so a test that needs a
+// valid code has to obtain it from the issuing call itself.
+type authRig struct {
+	engine *gin.Engine
+	jwt    *jwt.JWTUtil
+	db     *gorm.DB
+	otp    *service.OTPService
 }
 
 func postJSON(r *gin.Engine, path string, body interface{}) *httptest.ResponseRecorder {
@@ -87,7 +111,8 @@ func postJSON(r *gin.Engine, path string, body interface{}) *httptest.ResponseRe
 }
 
 func TestAdminLogin(t *testing.T) {
-	r, jwtUtil := newAuthRig(t)
+	rig := newAuthRig(t)
+	r, jwtUtil := rig.engine, rig.jwt
 
 	cases := []struct {
 		name       string
@@ -134,18 +159,89 @@ func TestAdminLogin(t *testing.T) {
 	}
 }
 
-func TestVerifyOTP(t *testing.T) {
-	r, jwtUtil := newAuthRig(t)
+const testPhone = "+254700000001"
 
-	t.Run("wrong OTP rejected", func(t *testing.T) {
-		w := postJSON(r, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=999999", nil)
+func TestRequestOTP(t *testing.T) {
+	rig := newAuthRig(t)
+
+	t.Run("missing phone", func(t *testing.T) {
+		if w := postJSON(rig.engine, "/api/auth/customer/request-otp", nil); w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", w.Code)
+		}
+	})
+
+	// An unregistered number must be indistinguishable from a registered one, or
+	// the endpoint becomes a customer-enumeration oracle.
+	t.Run("unknown number is indistinguishable", func(t *testing.T) {
+		known := postJSON(rig.engine, "/api/auth/customer/request-otp?phone="+url.QueryEscape(testPhone), nil)
+		unknown := postJSON(rig.engine, "/api/auth/customer/request-otp?phone=%2B254799999999", nil)
+		if known.Code != unknown.Code || known.Body.String() != unknown.Body.String() {
+			t.Errorf("responses differ: known=%d/%s unknown=%d/%s",
+				known.Code, known.Body.String(), unknown.Code, unknown.Body.String())
+		}
+		var stored int64
+		rig.db.Raw("SELECT COUNT(*) FROM customer_otps WHERE phone = ?", "+254799999999").Scan(&stored)
+		if stored != 0 {
+			t.Errorf("stored %d codes for an unregistered number, want 0", stored)
+		}
+	})
+
+	t.Run("throttles repeated requests", func(t *testing.T) {
+		rig := newAuthRig(t)
+		var lastCode int
+		for i := 0; i < 5; i++ {
+			w := postJSON(rig.engine, "/api/auth/customer/request-otp?phone="+url.QueryEscape(testPhone), nil)
+			lastCode = w.Code
+		}
+		if lastCode != http.StatusTooManyRequests {
+			t.Errorf("status after 5 requests = %d, want 429", lastCode)
+		}
+	})
+}
+
+func TestVerifyOTP(t *testing.T) {
+	t.Run("wrong code rejected", func(t *testing.T) {
+		rig := newAuthRig(t)
+		if _, err := rig.otp.Issue(testPhone); err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		w := postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=999999", nil)
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", w.Code)
 		}
 	})
 
-	t.Run("known phone gets customerId claim", func(t *testing.T) {
-		w := postJSON(r, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=123456", nil)
+	t.Run("no outstanding code rejected", func(t *testing.T) {
+		rig := newAuthRig(t)
+		w := postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=123456", nil)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", w.Code)
+		}
+	})
+
+	// The old implementation accepted the literal "123456" for any phone.
+	t.Run("hardcoded 123456 is not accepted", func(t *testing.T) {
+		rig := newAuthRig(t)
+		code, err := rig.otp.Issue(testPhone)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		if code == "123456" {
+			t.Skip("issued code happens to be 123456")
+		}
+		w := postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=123456", nil)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", w.Code)
+		}
+	})
+
+	t.Run("valid code gets customerId claim", func(t *testing.T) {
+		rig := newAuthRig(t)
+		code, err := rig.otp.Issue(testPhone)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		w := postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp="+code, nil)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 		}
@@ -157,7 +253,7 @@ func TestVerifyOTP(t *testing.T) {
 		if resp.CustomerID == nil || *resp.CustomerID != 1001 {
 			t.Fatalf("customerId = %v, want 1001", resp.CustomerID)
 		}
-		claims, err := jwtUtil.ParseToken(resp.Token)
+		claims, err := rig.jwt.ParseToken(resp.Token)
 		if err != nil {
 			t.Fatalf("token does not verify: %v", err)
 		}
@@ -168,19 +264,76 @@ func TestVerifyOTP(t *testing.T) {
 			t.Errorf("token roles = %v, want [CUSTOMER]", claims.Roles)
 		}
 	})
-}
 
-func TestDemoToken(t *testing.T) {
-	r, jwtUtil := newAuthRig(t)
-
-	t.Run("missing customerId", func(t *testing.T) {
-		if w := postJSON(r, "/api/auth/customer/demo-token", nil); w.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", w.Code)
+	t.Run("code is single use", func(t *testing.T) {
+		rig := newAuthRig(t)
+		code, err := rig.otp.Issue(testPhone)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		path := "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=" + code
+		if w := postJSON(rig.engine, path, nil); w.Code != http.StatusOK {
+			t.Fatalf("first use status = %d, want 200", w.Code)
+		}
+		if w := postJSON(rig.engine, path, nil); w.Code != http.StatusUnauthorized {
+			t.Errorf("replay status = %d, want 401", w.Code)
 		}
 	})
 
-	t.Run("issues customer token", func(t *testing.T) {
-		w := postJSON(r, "/api/auth/customer/demo-token?customerId=55", nil)
+	t.Run("guessing burns the attempt budget", func(t *testing.T) {
+		rig := newAuthRig(t)
+		code, err := rig.otp.Issue(testPhone)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		for i := 0; i < 5; i++ {
+			postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp=000001", nil)
+		}
+		// The real code must no longer work once the budget is exhausted.
+		w := postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp="+code, nil)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("status after 5 failures = %d, want 401", w.Code)
+		}
+	})
+
+	t.Run("expired code rejected", func(t *testing.T) {
+		rig := newAuthRig(t)
+		code, err := rig.otp.Issue(testPhone)
+		if err != nil {
+			t.Fatalf("issue: %v", err)
+		}
+		if err := rig.db.Exec(
+			"UPDATE customer_otps SET expires_at = ? WHERE phone = ?",
+			time.Now().Add(-time.Minute), testPhone,
+		).Error; err != nil {
+			t.Fatalf("expire: %v", err)
+		}
+		w := postJSON(rig.engine, "/api/auth/customer/verify-otp?phone=%2B254700000001&otp="+code, nil)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", w.Code)
+		}
+	})
+}
+
+func TestDemoToken(t *testing.T) {
+	rig := newAuthRig(t)
+
+	// The route mints a token for any customerId with no authentication, so it must
+	// stay off unless deliberately enabled. This is the default-deployment case.
+	t.Run("disabled by default", func(t *testing.T) {
+		if w := postJSON(rig.engine, "/api/auth/customer/demo-token?customerId=55", nil); w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404 (body=%s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("enabled by ALLOW_DEMO_TOKENS", func(t *testing.T) {
+		t.Setenv("ALLOW_DEMO_TOKENS", "true")
+
+		if w := postJSON(rig.engine, "/api/auth/customer/demo-token", nil); w.Code != http.StatusBadRequest {
+			t.Fatalf("missing customerId status = %d, want 400", w.Code)
+		}
+
+		w := postJSON(rig.engine, "/api/auth/customer/demo-token?customerId=55", nil)
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", w.Code)
 		}
@@ -188,7 +341,7 @@ func TestDemoToken(t *testing.T) {
 			Token string `json:"token"`
 		}
 		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		claims, err := jwtUtil.ParseToken(resp.Token)
+		claims, err := rig.jwt.ParseToken(resp.Token)
 		if err != nil {
 			t.Fatalf("token does not verify: %v", err)
 		}
@@ -199,7 +352,8 @@ func TestDemoToken(t *testing.T) {
 }
 
 func TestPortalLogin(t *testing.T) {
-	r, jwtUtil := newAuthRig(t)
+	rig := newAuthRig(t)
+	r, jwtUtil := rig.engine, rig.jwt
 
 	t.Run("admin credentials", func(t *testing.T) {
 		w := postJSON(r, "/api/auth/login", map[string]string{"username": "admin", "password": "admin123"})
@@ -221,37 +375,18 @@ func TestPortalLogin(t *testing.T) {
 		}
 	})
 
-	// KNOWN INSECURE — this asserts current behavior, not intended behavior.
-	// The customer branch of /api/auth/login issues a CUSTOMER JWT on a phone/email
-	// lookup alone, without checking the password, so any known mobile number is a
-	// full account login. Customers are supposed to authenticate via the OTP flow.
-	// Do not treat this passing test as a sign the endpoint is safe; when the
-	// endpoint is fixed, this expectation must be inverted to expect 401.
-	t.Run("customer by phone gets tenant-scoped token", func(t *testing.T) {
-		w := postJSON(r, "/api/auth/login", map[string]string{"username": "+254700000001", "password": "anything"})
-		if w.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200 (body=%s)", w.Code, w.Body.String())
-		}
-		var resp struct {
-			Token string `json:"token"`
-			User  struct {
-				Role       string `json:"role"`
-				CustomerID string `json:"customerId"`
-			} `json:"user"`
-		}
-		_ = json.Unmarshal(w.Body.Bytes(), &resp)
-		if resp.User.Role != "CUSTOMER" || resp.User.CustomerID != "1001" {
-			t.Errorf("user = %+v, want CUSTOMER/1001", resp.User)
-		}
-		claims, err := jwtUtil.ParseToken(resp.Token)
-		if err != nil {
-			t.Fatalf("token does not verify: %v", err)
-		}
-		if claims.CustomerID == nil || *claims.CustomerID != 1001 {
-			t.Errorf("token customerId = %v, want 1001", claims.CustomerID)
-		}
-		if claims.TenantID == "" {
-			t.Error("customer portal token missing tenantId claim")
+	// This endpoint used to issue a CUSTOMER token on a phone/email match alone,
+	// with no credential check, making any known mobile number a full account
+	// login. It must never hand out a customer token again.
+	t.Run("known customer phone is not a login", func(t *testing.T) {
+		for _, identity := range []string{"+254700000001", "wanjiku@example.com"} {
+			w := postJSON(r, "/api/auth/login", map[string]string{"username": identity, "password": "anything"})
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("%s: status = %d, want 401 (body=%s)", identity, w.Code, w.Body.String())
+			}
+			if bytes.Contains(w.Body.Bytes(), []byte("token")) {
+				t.Errorf("%s: response carries a token: %s", identity, w.Body.String())
+			}
 		}
 	})
 

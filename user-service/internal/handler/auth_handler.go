@@ -1,12 +1,14 @@
 package handler
 
 import (
-	"fmt"
+	"errors"
 	"net/http"
+	"os"
 	"strconv"
 
-	"github.com/athena/pkg/jwt"
 	apierrors "github.com/athena/pkg/errors"
+	"github.com/athena/pkg/jwt"
+	"github.com/athena/pkg/rabbitmq"
 	"github.com/athena/user-service/internal/dto"
 	"github.com/athena/user-service/internal/repository"
 	"github.com/athena/user-service/internal/service"
@@ -20,6 +22,8 @@ type AuthHandler struct {
 	adminUserRepo *repository.AdminUserRepository
 	jwtUtil       *jwt.JWTUtil
 	authService   *service.AuthService
+	otpService    *service.OTPService
+	rabbitClient  *rabbitmq.Client
 	db            *gorm.DB
 }
 
@@ -27,12 +31,16 @@ func NewAuthHandler(
 	adminUserRepo *repository.AdminUserRepository,
 	jwtUtil *jwt.JWTUtil,
 	authService *service.AuthService,
+	otpService *service.OTPService,
+	rabbitClient *rabbitmq.Client,
 	db *gorm.DB,
 ) *AuthHandler {
 	return &AuthHandler{
 		adminUserRepo: adminUserRepo,
 		jwtUtil:       jwtUtil,
 		authService:   authService,
+		otpService:    otpService,
+		rabbitClient:  rabbitClient,
 		db:            db,
 	}
 }
@@ -80,17 +88,66 @@ func (h *AuthHandler) AdminLogin(c *gin.Context) {
 	})
 }
 
-// RequestOTP is a stub that returns "OTP sent".
+// RequestOTP issues a single-use sign-in code to a registered customer's mobile.
+//
+// The response is identical whether or not the number is registered — a
+// distinguishable response would let anyone enumerate the customer base.
 func (h *AuthHandler) RequestOTP(c *gin.Context) {
 	phone := c.Query("phone")
 	if phone == "" {
 		phone = c.PostForm("phone")
 	}
-	log.Info().Str("phone", phone).Msg("OTP requested")
-	c.JSON(http.StatusOK, "OTP sent to "+phone)
+	if phone == "" {
+		apierrors.BadRequest(c, "phone is required")
+		return
+	}
+
+	const genericAck = "If that number is registered, a one-time code has been sent."
+
+	var cidVal int64
+	if err := h.db.Raw(
+		"SELECT customer_id FROM customers WHERE mobile_number = ?", phone,
+	).Scan(&cidVal).Error; err != nil || cidVal == 0 {
+		log.Warn().Str("phone", phone).Msg("OTP requested for unknown number")
+		c.JSON(http.StatusOK, genericAck)
+		return
+	}
+
+	code, err := h.otpService.Issue(phone)
+	if err != nil {
+		if errors.Is(err, service.ErrOTPThrottled) {
+			apierrors.Respond(c, http.StatusTooManyRequests, "too_many_requests",
+				"Too many code requests. Try again shortly.")
+			return
+		}
+		apierrors.InternalError(c, "failed to issue one-time code")
+		return
+	}
+
+	if h.rabbitClient != nil {
+		event := map[string]interface{}{
+			"type":    "CUSTOMER_OTP",
+			"channel": "SMS",
+			"phone":   phone,
+			"message": "Your NemoScore sign-in code is " + code + ". It expires in 5 minutes.",
+		}
+		if pubErr := h.rabbitClient.Publish(rabbitmq.NotificationKey, event); pubErr != nil {
+			// Delivery is best-effort; the code is already stored and still valid.
+			log.Error().Err(pubErr).Msg("failed to publish OTP notification")
+		}
+	}
+
+	// Dev escape hatch: without SMS configured there is no other way to obtain the
+	// code. Never enable outside local development — it puts codes in the logs.
+	if os.Getenv("OTP_DEV_LOG") == "true" {
+		log.Warn().Str("phone", phone).Str("otp", code).Msg("OTP_DEV_LOG enabled — code logged in clear")
+	}
+
+	log.Info().Int64("customerId", cidVal).Msg("OTP issued")
+	c.JSON(http.StatusOK, genericAck)
 }
 
-// VerifyOTP checks hardcoded OTP "123456" and looks up customer by mobile_number.
+// VerifyOTP exchanges a valid single-use code for a customer JWT.
 func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	phone := c.Query("phone")
 	if phone == "" {
@@ -100,41 +157,56 @@ func (h *AuthHandler) VerifyOTP(c *gin.Context) {
 	if otp == "" {
 		otp = c.PostForm("otp")
 	}
-
-	if otp != "123456" {
-		c.Status(http.StatusUnauthorized)
+	if phone == "" || otp == "" {
+		apierrors.BadRequest(c, "phone and otp are required")
 		return
 	}
 
-	// Look up customerId by phone
-	var customerID *int64
+	if err := h.otpService.Verify(phone, otp); err != nil {
+		if errors.Is(err, service.ErrOTPInvalid) {
+			log.Warn().Str("phone", phone).Msg("OTP verification failed")
+			apierrors.Unauthorized(c, "Invalid or expired code")
+			return
+		}
+		apierrors.InternalError(c, "failed to verify one-time code")
+		return
+	}
+
+	// The code is only ever issued to a registered number, but re-check rather
+	// than mint a token whose customerId claim we could not resolve.
 	var cidVal int64
-	err := h.db.Raw("SELECT customer_id FROM customers WHERE mobile_number = ?", phone).Scan(&cidVal).Error
-	if err == nil && cidVal != 0 {
-		customerID = &cidVal
+	if err := h.db.Raw(
+		"SELECT customer_id FROM customers WHERE mobile_number = ?", phone,
+	).Scan(&cidVal).Error; err != nil || cidVal == 0 {
+		apierrors.Unauthorized(c, "Invalid or expired code")
+		return
 	}
 
-	subject := phone
-	if customerID != nil {
-		subject = strconv.FormatInt(*customerID, 10)
-	}
-
-	token, err := h.jwtUtil.GenerateToken(subject, []string{"CUSTOMER"}, customerID)
+	subject := strconv.FormatInt(cidVal, 10)
+	token, err := h.jwtUtil.GenerateToken(subject, []string{"CUSTOMER"}, &cidVal)
 	if err != nil {
 		apierrors.InternalError(c, "failed to generate token")
 		return
 	}
 
+	log.Info().Int64("customerId", cidVal).Msg("Customer OTP login")
 	c.JSON(http.StatusOK, dto.AuthResponse{
 		Token:      token,
 		Username:   subject,
 		Roles:      []string{"CUSTOMER"},
-		CustomerID: customerID,
+		CustomerID: &cidVal,
 	})
 }
 
-// DemoToken generates a signed demo JWT for a customer (dev/testing only).
+// DemoToken mints a customer JWT from a customerId alone, with no authentication.
+// It is a development affordance and is disabled unless ALLOW_DEMO_TOKENS=true;
+// with it enabled, anyone who can reach this route can impersonate any customer.
 func (h *AuthHandler) DemoToken(c *gin.Context) {
+	if os.Getenv("ALLOW_DEMO_TOKENS") != "true" {
+		apierrors.NotFound(c, "not found")
+		return
+	}
+
 	cidStr := c.Query("customerId")
 	if cidStr == "" {
 		cidStr = c.PostForm("customerId")
@@ -217,39 +289,11 @@ func (h *AuthHandler) PortalLogin(c *gin.Context) {
 		}
 	}
 
-	// 2. Customer lookup by phone or email
-	lookup := req.Username
-	var result struct {
-		CustomerID int64  `gorm:"column:customer_id"`
-		FirstName  string `gorm:"column:first_name"`
-		LastName   string `gorm:"column:last_name"`
-		Email      string `gorm:"column:email"`
-	}
-
-	sql := "SELECT customer_id, first_name, last_name, email FROM customers WHERE mobile_number = ? OR email = ? LIMIT 1"
-	if err := h.db.Raw(sql, lookup, lookup).Scan(&result).Error; err != nil || result.CustomerID == 0 {
-		log.Warn().Str("username", lookup).Msg("Portal login failed")
-		c.Status(http.StatusUnauthorized)
-		return
-	}
-
-	cidStr := fmt.Sprintf("%d", result.CustomerID)
-	token, tokenErr := h.jwtUtil.GenerateTokenWithTenant(cidStr, []string{"CUSTOMER"}, &result.CustomerID, "admin")
-	if tokenErr != nil {
-		apierrors.InternalError(c, "failed to generate token")
-		return
-	}
-
-	log.Info().Int64("customerId", result.CustomerID).Msg("Portal customer login")
-	c.JSON(http.StatusOK, dto.PortalLoginResponse{
-		Token: token,
-		User: dto.UserInfo{
-			ID:         cidStr,
-			Email:      result.Email,
-			FirstName:  result.FirstName,
-			LastName:   result.LastName,
-			Role:       "CUSTOMER",
-			CustomerID: cidStr,
-		},
-	})
+	// 2. Not an admin. This endpoint used to fall through to a customer lookup by
+	// phone or email and issue a CUSTOMER token on a match alone — no credential
+	// was ever checked, so any known mobile number was a full account login.
+	// Customers hold no password (the customers table has no credential column);
+	// they sign in with a one-time code via /api/auth/customer/request-otp.
+	log.Warn().Str("username", req.Username).Msg("Portal login failed")
+	apierrors.Unauthorized(c, "Invalid username or password")
 }
