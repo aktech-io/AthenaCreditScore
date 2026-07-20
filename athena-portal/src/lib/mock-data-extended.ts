@@ -144,7 +144,7 @@ export const mockAdminUsers: AdminUser[] = [
 export const mockSystemNotifications: SystemNotification[] = [
   { id: "NTF-001", title: "Monthly Credit Report Available", message: "Your March 2025 credit report is now available for download.", type: "report", channel: "all", targetAudience: "all_clients", status: "sent", sentAt: "2025-03-12T08:00:00Z", recipients: 12450, openRate: 67.3 },
   { id: "NTF-002", title: "System Maintenance Scheduled", message: "Planned maintenance on March 15th from 2:00 AM - 4:00 AM EAT.", type: "system", channel: "email", targetAudience: "all_admins", status: "scheduled", scheduledAt: "2025-03-14T20:00:00Z", recipients: 24 },
-  { id: "NTF-003", title: "New Scoring Model Deployed", message: "Athena Score v3.1 has been deployed as challenger model.", type: "model", channel: "in_app", targetAudience: "all_admins", status: "sent", sentAt: "2025-03-01T10:00:00Z", recipients: 24, openRate: 91.7 },
+  { id: "NTF-003", title: "New Scoring Model Deployed", message: "NemoScore Score v3.1 has been deployed as challenger model.", type: "model", channel: "in_app", targetAudience: "all_admins", status: "sent", sentAt: "2025-03-01T10:00:00Z", recipients: 24, openRate: 91.7 },
   { id: "NTF-004", title: "Regulatory Compliance Deadline", message: "Q1 2025 compliance reports due by March 31st.", type: "compliance", channel: "email", targetAudience: "specific", status: "sent", sentAt: "2025-03-10T09:00:00Z", recipients: 6, openRate: 100 },
   { id: "NTF-005", title: "Fraud Alert: Unusual Activity", message: "Multiple suspicious applications detected from Mombasa region.", type: "alert", channel: "all", targetAudience: "all_admins", status: "sent", sentAt: "2025-03-11T06:30:00Z", recipients: 24, openRate: 95.8 },
   { id: "NTF-006", title: "Score Improvement Tips", message: "Personalized tips based on your latest credit report.", type: "report", channel: "sms", targetAudience: "segment", status: "draft", recipients: 3200 },
@@ -229,7 +229,7 @@ export const mockNPLSummary: NPLSummary = {
 
 export const mockBureauScores: BureauScore[] = [
   {
-    bureau: "Athena",
+    bureau: "NemoScore",
     score: 698,
     grade: "Satisfactory",
     baseScore: 672,
@@ -333,9 +333,9 @@ export const mockAlerts: CreditAlert[] = [
 ];
 
 export const mockModels: ModelConfig[] = [
-  { id: "MDL-001", name: "Athena Score v3.0", version: "3.0.2", status: "champion", accuracy: 92.4, giniCoefficient: 0.78, ksStatistic: 0.65, lastTrained: "2025-02-15", features: 156, description: "Production LightGBM model with enhanced feature engineering" },
-  { id: "MDL-002", name: "Athena Score v3.1", version: "3.1.0-beta", status: "challenger", accuracy: 93.1, giniCoefficient: 0.81, ksStatistic: 0.68, lastTrained: "2025-03-01", features: 172, description: "Challenger model with additional mobile money features" },
-  { id: "MDL-003", name: "Athena Score v2.5", version: "2.5.8", status: "retired", accuracy: 89.7, giniCoefficient: 0.72, ksStatistic: 0.59, lastTrained: "2024-08-10", features: 134, description: "Previous production model - retired Feb 2025" },
+  { id: "MDL-001", name: "NemoScore Score v3.0", version: "3.0.2", status: "champion", accuracy: 92.4, giniCoefficient: 0.78, ksStatistic: 0.65, lastTrained: "2025-02-15", features: 156, description: "Production LightGBM model with enhanced feature engineering" },
+  { id: "MDL-002", name: "NemoScore Score v3.1", version: "3.1.0-beta", status: "challenger", accuracy: 93.1, giniCoefficient: 0.81, ksStatistic: 0.68, lastTrained: "2025-03-01", features: 172, description: "Challenger model with additional mobile money features" },
+  { id: "MDL-003", name: "NemoScore Score v2.5", version: "2.5.8", status: "retired", accuracy: 89.7, giniCoefficient: 0.72, ksStatistic: 0.59, lastTrained: "2024-08-10", features: 134, description: "Previous production model - retired Feb 2025" },
 ];
 
 export const mockConsents: ConsentRecord[] = [

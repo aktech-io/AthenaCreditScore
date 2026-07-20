@@ -21,7 +21,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 MLFLOW_URI   = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-EXPERIMENT   = os.getenv("MLFLOW_EXPERIMENT_NAME", "athena_credit_scoring")
+EXPERIMENT   = os.getenv("MLFLOW_EXPERIMENT_NAME", "nemoscore-scorer")
 REGISTERED_MODEL = "athena_lgbm_scorer"
 
 # MLflow model aliases (used to resolve champion/challenger at inference)
@@ -47,7 +47,7 @@ def ensure_experiment() -> str:
 
 
 def start_run(run_name: str, tags: Optional[Dict[str, str]] = None):
-    """Context manager: start an MLflow run under the Athena experiment."""
+    """Context manager: start an MLflow run under the NemoScore experiment."""
     exp_id = ensure_experiment()
     return mlflow.start_run(experiment_id=exp_id, run_name=run_name, tags=tags or {})
 

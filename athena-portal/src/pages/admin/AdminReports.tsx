@@ -11,7 +11,7 @@ const recentReports = mockClients.map((c) => ({
   nationalId: c.nationalId,
   date: c.lastReportDate,
   score: c.creditScore,
-  source: ["TransUnion", "Metropol", "Athena"][Math.floor(Math.random() * 3)],
+  source: ["TransUnion", "Metropol", "NemoScore"][Math.floor(Math.random() * 3)],
   type: ["Full Report", "Summary", "Monitoring"][Math.floor(Math.random() * 3)],
 }));
 

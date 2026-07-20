@@ -49,7 +49,7 @@ export default function AdminLayout() {
                 <Shield className="h-5 w-5 text-primary-foreground" />
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-sm text-sidebar-primary-foreground">Athena CRB</span>
+                <span className="font-bold text-sm text-sidebar-primary-foreground">NemoScore</span>
                 <span className="text-[11px] text-sidebar-foreground">Admin Portal</span>
               </div>
             </div>
@@ -92,7 +92,7 @@ export default function AdminLayout() {
               </Avatar>
               <div className="flex flex-col flex-1 min-w-0">
                 <span className="text-xs font-medium text-sidebar-accent-foreground truncate">Admin</span>
-                <span className="text-[10px] text-sidebar-foreground truncate">admin@athena.co.ke</span>
+                <span className="text-[10px] text-sidebar-foreground truncate">admin@nemoscore.co.ke</span>
               </div>
               <Button
                 variant="ghost"
@@ -111,7 +111,7 @@ export default function AdminLayout() {
             <SidebarTrigger />
             <Separator orientation="vertical" className="h-6" />
             <div className="flex-1" />
-            <span className="text-xs text-muted-foreground">Athena Credit Bureau System</span>
+            <span className="text-xs text-muted-foreground">NemoScore · Nemo Neobank</span>
           </header>
           <main className="flex-1 p-6">
             <Outlet />

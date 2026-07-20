@@ -9,7 +9,7 @@ const scoreTrend = [
 const bureauComparison = [
   { name: "TransUnion", reports: 1245, accuracy: 94 },
   { name: "Metropol", reports: 987, accuracy: 91 },
-  { name: "Athena", reports: 1355, accuracy: 96 },
+  { name: "NemoScore", reports: 1355, accuracy: 96 },
 ];
 
 const sectorExposure = [

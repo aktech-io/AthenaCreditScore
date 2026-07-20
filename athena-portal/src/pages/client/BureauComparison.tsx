@@ -33,11 +33,11 @@ export default function BureauComparison() {
       {/* Score Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {mockBureauScores.map((bureau) => (
-          <Card key={bureau.bureau} className={`border-border/50 ${bureau.bureau === "Athena" ? "ring-2 ring-primary/20" : ""}`}>
+          <Card key={bureau.bureau} className={`border-border/50 ${bureau.bureau === "NemoScore" ? "ring-2 ring-primary/20" : ""}`}>
             <CardHeader className="text-center pb-2">
               <div className="flex items-center justify-center gap-2">
                 <CardTitle className="text-base">{bureau.bureau}</CardTitle>
-                {bureau.bureau === "Athena" && <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px]">AI-Enhanced</Badge>}
+                {bureau.bureau === "NemoScore" && <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px]">AI-Enhanced</Badge>}
               </div>
               <CardDescription>Updated {bureau.lastUpdated}</CardDescription>
             </CardHeader>
@@ -86,15 +86,15 @@ export default function BureauComparison() {
         </CardContent>
       </Card>
 
-      {/* Athena Score Breakdown - detailed */}
+      {/* NemoScore Score Breakdown - detailed */}
       <Card className="border-border/50">
         <CardHeader className="pb-2">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base">Athena Score Breakdown</CardTitle>
+            <CardTitle className="text-base">NemoScore Score Breakdown</CardTitle>
             <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px]">Hybrid AI Model</Badge>
           </div>
           <CardDescription>
-            Your Athena score uses a hybrid model: 70% quantitative base score + 30% AI qualitative analysis. 
+            Your NemoScore score uses a hybrid model: 70% quantitative base score + 30% AI qualitative analysis. 
             The AI analyzes your transaction patterns for behavioral signals.
           </CardDescription>
         </CardHeader>

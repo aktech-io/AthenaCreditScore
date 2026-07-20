@@ -40,8 +40,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Athena Credit Score — AI/ML Service",
-    description="MCP server, hybrid scoring engine, feature store, and MLOps for the Athena Credit Initiative.",
+    title="NemoScore — AI/ML Scoring Service",
+    description="MCP server, hybrid scoring engine, feature store, and MLOps for NemoScore (Nemo neobank).",
     version="2.0.0",
     lifespan=lifespan,
 )

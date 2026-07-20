@@ -52,7 +52,7 @@ export default function AdminLogin() {
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <img
           src={heroDashboard}
-          alt="Athena CRB"
+          alt="NemoScore"
           className="absolute inset-0 w-full h-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-br from-primary/90 via-primary/70 to-primary/90" />
@@ -62,8 +62,8 @@ export default function AdminLogin() {
               <Shield className="h-5 w-5" />
             </div>
             <div>
-              <span className="font-bold text-lg">Athena</span>
-              <span className="font-light ml-1 opacity-80">CRB</span>
+              <span className="font-bold text-lg">Nemo</span>
+              <span className="font-light opacity-80">Score</span>
             </div>
           </div>
 
@@ -91,7 +91,7 @@ export default function AdminLogin() {
           </div>
 
           <p className="text-xs opacity-50">
-            © 2025 Athena Credit Bureau · Licensed by CBK
+            © 2026 NemoScore · Nemo Neobank · Licensed by CBK
           </p>
         </div>
       </div>

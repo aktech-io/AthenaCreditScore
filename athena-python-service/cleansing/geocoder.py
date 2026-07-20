@@ -24,7 +24,7 @@ class Geocoder:
     def __init__(
         self,
         base_url: str = _NOMINATIM_BASE,
-        user_agent: str = "AthenaCreditScore/2.0 (contact@athena.co.ke)",
+        user_agent: str = "NemoScore/2.0 (tech@aktech.co.ke)",
     ):
         self.base_url = base_url
         self.headers = {"User-Agent": user_agent}

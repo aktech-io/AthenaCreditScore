@@ -1,6 +1,12 @@
-# Athena Credit Initiative
+# NemoScore — Credit Intelligence for Nemo Neobank
+> Formerly the Athena Credit Initiative. Internal wire-level identifiers (Go module paths,
+> `athena_db`, `athena-net`, `athena.exchange`, service DNS names) intentionally keep the
+> legacy name — they are shared contracts with the deployed LMS.
 
-**AI-powered credit scoring for African SMEs and individuals — built on LightGBM, GPT/Ollama, and MLflow.**
+**AI-powered credit scoring for African SMEs and individuals — built on LightGBM, local-first LLM overlay, and MLflow.**
+
+> ⚠️ Parts of this README predate the Go rewrite and NemoScore phases — `CLAUDE.md` and
+> `docs/nemoscore-audit.md` are the authoritative, current references.
 
 ---
 

@@ -53,7 +53,7 @@ export default function ClientDashboard() {
         <Card className="lg:row-span-2 border-border/50">
           <CardHeader className="text-center pb-2">
             <CardTitle className="text-base">Your Credit Score</CardTitle>
-            <CardDescription>Source: Athena</CardDescription>
+            <CardDescription>Source: NemoScore</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-4">
             {scoreLoading ? (

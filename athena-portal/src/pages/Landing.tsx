@@ -7,7 +7,7 @@ import heroDashboard from "@/assets/hero-dashboard.jpg";
 
 const features = [
   { icon: Brain, title: "Hybrid AI Scoring", desc: "70% quantitative rules + 30% AI qualitative analysis for the most accurate credit decisions in East Africa.", tag: "AI-Powered" },
-  { icon: FileText, title: "Multi-Bureau Reports", desc: "Unified view across TransUnion, Metropol, and Athena with detailed factor breakdowns and trend analysis.", tag: "Reports" },
+  { icon: FileText, title: "Multi-Bureau Reports", desc: "Unified view across TransUnion, Metropol, and NemoScore with detailed factor breakdowns and trend analysis.", tag: "Reports" },
   { icon: Lock, title: "Credit Freeze & Fraud", desc: "Instant credit freezes, identity theft monitoring, and real-time fraud alerts to protect your clients.", tag: "Security" },
   { icon: TrendingUp, title: "Score Simulator", desc: "What-if analysis lets users see projected score changes before making financial decisions.", tag: "Tools" },
   { icon: Users, title: "Dispute Resolution", desc: "End-to-end dispute management with automated workflows, SLA tracking, and audit trails.", tag: "Compliance" },
@@ -24,7 +24,7 @@ const stats = [
 const partners = ["NCBA Bank", "Stanbic Bank", "Equity Bank", "KCB Group", "Safaricom", "Co-op Bank"];
 
 const testimonials = [
-  { quote: "Athena's hybrid AI model reduced our default rate by 34% in the first quarter. The explainable scoring is exactly what our regulators needed.", name: "Mary Wanjiku", role: "Chief Risk Officer, NCBA Bank", initials: "MW" },
+  { quote: "NemoScore's hybrid AI model reduced our default rate by 34% in the first quarter. The explainable scoring is exactly what our regulators needed.", name: "Mary Wanjiku", role: "Chief Risk Officer, NCBA Bank", initials: "MW" },
   { quote: "The multi-bureau comparison and real-time alerts have transformed how we assess creditworthiness. Processing time dropped from days to seconds.", name: "James Otieno", role: "Head of Lending, Equity Bank", initials: "JO" },
 ];
 
@@ -39,8 +39,8 @@ export default function Landing() {
               <Shield className="h-5 w-5 text-primary-foreground" />
             </div>
             <div>
-              <span className="font-bold text-lg tracking-tight">Athena</span>
-              <span className="text-muted-foreground font-light ml-1">CRB</span>
+              <span className="font-bold text-lg tracking-tight">Nemo</span>
+              <span className="text-muted-foreground font-light">Score</span>
             </div>
           </div>
           <div className="hidden md:flex items-center gap-8 text-sm text-muted-foreground">
@@ -163,9 +163,9 @@ export default function Landing() {
             className="text-center mb-16"
           >
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/50 px-4 py-1.5 mb-6 text-xs text-muted-foreground uppercase tracking-widest font-medium">
-              The Athena Hybrid Model
+              The NemoScore Hybrid Model
             </div>
-            <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">How Athena Scores Credit</h2>
+            <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">How NemoScore Scores Credit</h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-lg">
               A revolutionary two-part system combining quantitative rules with AI-driven qualitative analysis.
             </p>
@@ -275,7 +275,7 @@ export default function Landing() {
         >
           <h2 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-4">Trusted by Leading Banks</h2>
           <p className="text-muted-foreground max-w-xl mx-auto text-lg">
-            See how financial institutions across East Africa use Athena.
+            See how financial institutions across East Africa use NemoScore.
           </p>
         </motion.div>
 
@@ -329,7 +329,7 @@ export default function Landing() {
               Ready to Transform <br className="hidden md:block" />Credit Decisions?
             </h2>
             <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-10">
-              Join the financial institutions using Athena to make smarter, 
+              Join the financial institutions using NemoScore to make smarter, 
               fairer, and faster credit decisions.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -353,7 +353,7 @@ export default function Landing() {
                 <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
                   <Shield className="h-4 w-4 text-primary-foreground" />
                 </div>
-                <span className="font-bold">Athena CRB</span>
+                <span className="font-bold">NemoScore</span>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 East Africa's first AI-powered credit bureau. Building a more inclusive 
@@ -389,7 +389,7 @@ export default function Landing() {
             </div>
           </div>
           <div className="border-t border-border/50 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-xs text-muted-foreground">© 2025 Athena Credit Bureau. Licensed by Central Bank of Kenya. All rights reserved.</p>
+            <p className="text-xs text-muted-foreground">© 2026 NemoScore · Nemo Neobank. Licensed by the Central Bank of Kenya. All rights reserved.</p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               <span>Nairobi, Kenya</span>
               <span>·</span>

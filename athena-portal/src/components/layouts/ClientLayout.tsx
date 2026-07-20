@@ -48,7 +48,7 @@ export default function ClientLayout() {
                 <User className="h-5 w-5 text-primary-foreground" />
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-sm text-sidebar-primary-foreground">Athena CRB</span>
+                <span className="font-bold text-sm text-sidebar-primary-foreground">NemoScore</span>
                 <span className="text-[11px] text-sidebar-foreground">My Credit</span>
               </div>
             </div>
@@ -117,7 +117,7 @@ export default function ClientLayout() {
             <SidebarTrigger />
             <Separator orientation="vertical" className="h-6" />
             <div className="flex-1" />
-            <span className="text-xs text-muted-foreground">Athena Credit Bureau</span>
+            <span className="text-xs text-muted-foreground">NemoScore</span>
           </header>
           <main className="flex-1 p-6">
             <Outlet />

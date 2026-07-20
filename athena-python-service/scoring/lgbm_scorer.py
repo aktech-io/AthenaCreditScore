@@ -12,7 +12,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "AthenaScorer")
+MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "NemoScorer")
 
 
 class LGBMScorer:

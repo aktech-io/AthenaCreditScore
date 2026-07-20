@@ -25,8 +25,8 @@ from sklearn.model_selection import train_test_split
 logger = structlog.get_logger(__name__)
 
 MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "athena-credit-scorer")
-MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "AthenaScorer")
+EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "nemoscore-scorer")
+MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "NemoScorer")
 
 # Domain monotone constraints: +1 = feature can only push PD up, -1 = only
 # down, 0 = unconstrained (direction genuinely ambiguous). Guards against

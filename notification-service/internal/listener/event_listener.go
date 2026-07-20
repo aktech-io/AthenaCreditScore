@@ -98,14 +98,14 @@ func (l *EventListener) consumeNotifications(msgs <-chan amqp.Delivery) {
 			token, _ := event["token"].(string)
 			log.Info().Str("email", email).Msg("[NOTIFICATION] User invitation")
 			if email != "" && token != "" {
-				subject := "You've been invited to Athena Credit Score Platform"
+				subject := "You've been invited to the NemoScore Platform"
 				body := fmt.Sprintf(
 					"Hello,\n\n"+
-						"You have been invited to join the Athena Credit Score Platform.\n\n"+
+						"You have been invited to join the NemoScore platform.\n\n"+
 						"Complete your registration here:\n"+
 						"http://localhost:5173/complete-registration?token=%s\n\n"+
 						"This link expires in 24 hours.\n\n"+
-						"Regards,\nAthena Team", token)
+						"Regards,\nThe NemoScore Team", token)
 				if err := l.svc.SendEmail("user-service", email, subject, body); err != nil {
 					log.Error().Err(err).Msg("[NOTIFICATION] failed to send user invitation email")
 				}

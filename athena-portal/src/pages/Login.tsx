@@ -67,7 +67,7 @@ export default function Login() {
           <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center mx-auto mb-4">
             <Shield className="h-7 w-7 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-bold">Welcome to Athena CRB</h1>
+          <h1 className="text-2xl font-bold">Welcome to NemoScore</h1>
           <p className="text-sm text-muted-foreground mt-1">Sign in to access your portal</p>
         </div>
 

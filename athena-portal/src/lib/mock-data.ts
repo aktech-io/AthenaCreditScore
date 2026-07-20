@@ -44,7 +44,7 @@ export interface CreditReport {
   bureauScore: number;
   scoreGrade: string;
   ppiScore: string;
-  source: "TransUnion" | "Metropol" | "Athena";
+  source: "TransUnion" | "Metropol" | "NemoScore";
   summary: {
     totalAccounts: number;
     nonPerformingAccounts: number;
@@ -279,7 +279,7 @@ export const mockReport: CreditReport = {
   bureauScore: 698,
   scoreGrade: "Satisfactory",
   ppiScore: "M3",
-  source: "Athena",
+  source: "NemoScore",
   summary: {
     totalAccounts: 43,
     nonPerformingAccounts: 2,

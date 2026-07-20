@@ -37,7 +37,7 @@ export default function CreditReport() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Credit Report</h1>
           <p className="text-sm text-muted-foreground">
-            Full credit report for {customerName} — Source: Athena
+            Full credit report for {customerName} — Source: NemoScore
           </p>
         </div>
         <div className="flex gap-2">

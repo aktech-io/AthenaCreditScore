@@ -184,7 +184,7 @@ export default function NPLAnalytics() {
           <Card className="border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Default Rate by Score Band</CardTitle>
-              <CardDescription>How the Athena score predicts default probability — validating the hybrid model</CardDescription>
+              <CardDescription>How the NemoScore score predicts default probability — validating the hybrid model</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid lg:grid-cols-2 gap-6">

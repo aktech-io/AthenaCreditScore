@@ -121,7 +121,7 @@ def load_training_baseline(aliases: tuple = ("champion", "challenger")) -> Optio
     import mlflow
 
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
-    model_name = os.getenv("MLFLOW_MODEL_NAME", "AthenaScorer")
+    model_name = os.getenv("MLFLOW_MODEL_NAME", "NemoScorer")
     client = mlflow.tracking.MlflowClient()
     for alias in aliases:
         try:

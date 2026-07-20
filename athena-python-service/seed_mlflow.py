@@ -28,7 +28,7 @@ print(f"Local artifact  : {LOCAL_ARTIFACT_ROOT}")
 from mlflow.tracking import MlflowClient as _Client
 _client = _Client()
 try:
-    exp = _client.get_experiment_by_name("athena-credit-scorer")
+    exp = _client.get_experiment_by_name("nemoscore-scorer")
     if exp is None:
         exp_id = _client.create_experiment(
             "athena-credit-scorer",
@@ -89,7 +89,7 @@ def seed_run(run_name: str) -> str:
         "n_estimators": 500, "verbose": -1, "class_weight": "balanced",
     }
 
-    experiment = mlflow.set_experiment("athena-credit-scorer")
+    experiment = mlflow.set_experiment("nemoscore-scorer")
     with mlflow.start_run(run_name=run_name) as run:
         mlflow.log_params(params)
         model = lgb.LGBMClassifier(**{k: v for k, v in params.items() if k != "early_stopping_rounds"})
@@ -117,7 +117,7 @@ def seed_run(run_name: str) -> str:
 
         # Register in model registry
         model_uri = f"runs:/{run.info.run_id}/lgbm.txt"
-        mlflow.register_model(model_uri, "AthenaScorer")
+        mlflow.register_model(model_uri, "NemoScorer")
         return run.info.run_id
 
 
@@ -130,12 +130,12 @@ run_id_challenger = seed_run("athena-lgbm-challenger-v1")
 # Set aliases
 from mlflow.tracking import MlflowClient
 client = MlflowClient()
-for mv in client.search_model_versions("name='AthenaScorer'"):
+for mv in client.search_model_versions("name='NemoScorer'"):
     if mv.run_id == run_id_champion:
-        client.set_registered_model_alias("AthenaScorer", "champion", mv.version)
+        client.set_registered_model_alias("NemoScorer", "champion", mv.version)
         print(f"\nSet version {mv.version} as 'champion'")
     elif mv.run_id == run_id_challenger:
-        client.set_registered_model_alias("AthenaScorer", "challenger", mv.version)
+        client.set_registered_model_alias("NemoScorer", "challenger", mv.version)
         print(f"Set version {mv.version} as 'challenger'")
 
 print("\n✅ Seeding complete! Open http://localhost:5000 to see the models.")

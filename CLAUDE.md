@@ -1,11 +1,18 @@
-# Athena Credit Initiative — CLAUDE.md
+# NemoScore (formerly Athena Credit Initiative) — CLAUDE.md
 > Continuity file for AI coding agents. Keep this updated as the project evolves.
 
 ---
 
 ## Project Summary
 
-AI-powered credit scoring platform for African SMEs and individuals.
+AI-powered credit scoring platform for African SMEs and individuals, branded **NemoScore**
+for the Nemo neobank. **Branding boundary:** everything user-visible (portal, emails/SMS,
+API doc titles, dashboards, MLflow names) says NemoScore; wire-level identifiers deliberately
+keep the legacy `athena` name because they are shared contracts with the LMS and deploy
+configs — Go module paths (`github.com/athena/*`), docker network `athena-net`, container/DNS
+names (`athena-python-service`, …), DB `athena_db`, RabbitMQ `athena.exchange`/queues, env
+var names, and portal localStorage keys. Do not rename those without coordinating an LMS +
+deploy migration.
 - **Score range:** 300–850 (PDO-calibrated, industry standard)
 - **Scoring engine:** LightGBM (ML) + rule-based scorecard + LLM qualitative overlay
 - **Target:** Kenyan market (TransUnion + Metropol CRBs, KES amounts, Africa/Nairobi timezone)
@@ -309,7 +316,7 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 - Update live: `PUT /api/v1/crb/routing-config?challengerPct=0.2`
 - Every request logged to `champion_challenger_log`
 - **July 2026:** `compute_hybrid_score` now actually calls the LightGBM model
-  (`models:/AthenaScorer@{champion|challenger}`) for the PD when a `lgbm_features`
+  (`models:/NemoScorer@{champion|challenger}`) for the PD when a `lgbm_features`
   vector exists in the feature store; response reports `pd_source` and `model_version`.
   Scorecard logistic remains the fallback. LLM adjustment is capped (`LLM_MAX_ADJUSTMENT`,
   default ±25) and can never move a score across a band boundary; it no longer affects PD.
@@ -496,7 +503,7 @@ All 5 microservices converted from Java (Spring Boot) to Go (Gin + GORM):
 | MLflow | http://localhost:5000 | — |
 | RabbitMQ Management | http://localhost:15672 | athena / athena_secret_change_me |
 | Kong Admin | http://localhost:8444 | — |
-| Athena Portal | http://localhost:5173 | admin / admin (admin); OTP (client) |
+| NemoScore Portal | http://localhost:5173 | admin / admin (admin); OTP (client) |
 
 ---
 

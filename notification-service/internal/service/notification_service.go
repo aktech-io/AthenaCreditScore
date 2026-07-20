@@ -91,20 +91,20 @@ func (s *NotificationService) SendEmail(serviceName, to, subject, body string) e
 }
 
 // --------------------------------------------------------------------------
-// Athena Credit Score — event-driven email templates
+// NemoScore — event-driven email templates
 // --------------------------------------------------------------------------
 
 func (s *NotificationService) SendDisputeAcknowledgement(to, disputeID string, customerID int64) {
-	subject := "Dispute Received — Athena Credit Score"
+	subject := "Dispute Received — NemoScore"
 	body := fmt.Sprintf(
 		"Dear Valued Customer,\n\n"+
 			"We have received your credit report dispute (Ref: %s).\n\n"+
 			"Our team will review your dispute and respond within 5 working days in accordance "+
 			"with the Credit Reference Bureau Regulations, 2013.\n\n"+
-			"You can track the status of your dispute by logging into the Athena Customer Portal.\n\n"+
+			"You can track the status of your dispute by logging into the NemoScore customer portal.\n\n"+
 			"Regards,\n"+
-			"Athena Credit Score Team\n"+
-			"support@athena.co.ke",
+			"NemoScore Team, Nemo Neobank\n"+
+			"support@nemoscore.co.ke",
 		disputeID)
 	if err := s.SendEmail("customer-service", to, subject, body); err != nil {
 		log.Error().Err(err).Str("to", to).Msg("failed to send dispute acknowledgement")
@@ -121,7 +121,7 @@ type ScoreChangeDetail struct {
 }
 
 func (s *NotificationService) SendScoreUpdateNotification(to string, score interface{}, customerID int64, detail ScoreChangeDetail) {
-	subject := "Your Credit Score Has Been Updated — Athena"
+	subject := "Your NemoScore Has Been Updated"
 	change := ""
 	if detail.HasDelta && detail.PreviousScore != nil {
 		direction := "increased"
@@ -136,13 +136,13 @@ func (s *NotificationService) SendScoreUpdateNotification(to string, score inter
 	}
 	body := fmt.Sprintf(
 		"Dear Valued Customer,\n\n"+
-			"Your Athena Credit Score has been updated.\n\n"+
+			"Your NemoScore has been updated.\n\n"+
 			"New Score: %v / 850\n%s%s\n"+
-			"Log in to the Athena Customer Portal to view your full credit report "+
+			"Log in to the NemoScore customer portal to view your full credit report "+
 			"and understand what factors influenced your score.\n\n"+
 			"Regards,\n"+
-			"Athena Credit Score Team\n"+
-			"support@athena.co.ke",
+			"NemoScore Team, Nemo Neobank\n"+
+			"support@nemoscore.co.ke",
 		score, band, change)
 	if err := s.SendEmail("scoring-service", to, subject, body); err != nil {
 		log.Error().Err(err).Str("to", to).Msg("failed to send score update notification")
@@ -157,15 +157,15 @@ func abs64(n int64) int64 {
 }
 
 func (s *NotificationService) SendConsentGrantedNotification(to string, partnerID interface{}, customerID int64) {
-	subject := "Data Access Consent Confirmed — Athena"
+	subject := "Data Access Consent Confirmed — NemoScore"
 	body := fmt.Sprintf(
 		"Dear Valued Customer,\n\n"+
 			"You have successfully granted data access consent to partner: %v.\n\n"+
-			"If you did not authorise this, please contact us immediately at support@athena.co.ke "+
+			"If you did not authorise this, please contact us immediately at support@nemoscore.co.ke "+
 			"or call +254 700 000 000.\n\n"+
-			"You can revoke consent at any time from the Athena Customer Portal.\n\n"+
+			"You can revoke consent at any time from the NemoScore customer portal.\n\n"+
 			"Regards,\n"+
-			"Athena Credit Score Team",
+			"NemoScore Team, Nemo Neobank",
 		partnerID)
 	if err := s.SendEmail("customer-service", to, subject, body); err != nil {
 		log.Error().Err(err).Str("to", to).Msg("failed to send consent granted notification")
