@@ -73,7 +73,14 @@ func (l *EventListener) consumeNotifications(msgs <-chan amqp.Delivery) {
 			score := event["score"]
 			log.Info().Int64("customerId", customerID).Interface("score", score).Msg("[NOTIFICATION] Score updated")
 			if email != "" {
-				l.svc.SendScoreUpdateNotification(email, score, customerID)
+				// previousScore/delta/band are enriched by the python
+				// publisher (alerts/score_alerts.py); absent on legacy events.
+				l.svc.SendScoreUpdateNotification(email, score, customerID, service.ScoreChangeDetail{
+					PreviousScore: event["previousScore"],
+					Delta:         extractInt64(event, "delta"),
+					HasDelta:      hasKey(event, "delta"),
+					Band:          strVal(event, "band"),
+				})
 			} else {
 				log.Warn().Int64("customerId", customerID).Msg("[NOTIFICATION] No email in event payload for SCORE_UPDATED")
 			}
@@ -152,4 +159,16 @@ func extractInt64(m map[string]interface{}, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+// hasKey reports whether the event payload carries a non-nil value for key.
+func hasKey(m map[string]interface{}, key string) bool {
+	v, ok := m[key]
+	return ok && v != nil
+}
+
+// strVal safely extracts a string value from a JSON-decoded map.
+func strVal(m map[string]interface{}, key string) string {
+	s, _ := m[key].(string)
+	return s
 }

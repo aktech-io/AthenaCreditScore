@@ -399,3 +399,49 @@ export async function updateNotificationConfig(body: Record<string, unknown>): P
 export async function sendNotification(body: Record<string, unknown>): Promise<void> {
   await apiFetch("/api/v1/notifications/send", { method: "POST", body: JSON.stringify(body) });
 }
+
+// ── Score-change alerts (contract 1.5.0) ─────────────────────────────
+
+export interface ScoreAlert {
+  alert_id: number;
+  alert_type: string;
+  reason: "BAND_CHANGE" | "SCORE_DELTA";
+  previous_score: number;
+  new_score: number;
+  delta: number;
+  previous_band: string | null;
+  new_band: string | null;
+  notified: boolean;
+  created_at: string;
+}
+
+export interface ScoreAlertsResponse {
+  customer_id: number;
+  count: number;
+  alerts: ScoreAlert[];
+}
+
+export async function fetchScoreAlerts(customerId: number, limit = 50): Promise<ScoreAlertsResponse> {
+  return apiFetch<ScoreAlertsResponse>(`/api/v1/credit-score/${customerId}/alerts?limit=${limit}`);
+}
+
+export interface AlertPreferences {
+  customer_id: number;
+  score_change_enabled: boolean;
+  min_delta: number | null;
+  effective_min_delta: number;
+}
+
+export async function fetchAlertPreferences(customerId: number): Promise<AlertPreferences> {
+  return apiFetch<AlertPreferences>(`/api/v1/credit-score/${customerId}/alerts/preferences`);
+}
+
+export async function updateAlertPreferences(
+  customerId: number,
+  prefs: { score_change_enabled: boolean; min_delta?: number | null },
+): Promise<AlertPreferences> {
+  return apiFetch<AlertPreferences>(`/api/v1/credit-score/${customerId}/alerts/preferences`, {
+    method: "PUT",
+    body: JSON.stringify(prefs),
+  });
+}

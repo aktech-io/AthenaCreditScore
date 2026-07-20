@@ -213,6 +213,14 @@ async def ingest_credit_report(
     })
     await db.commit()
 
+    # Score-change alert (feed row + SCORE_UPDATED event). Never raises.
+    from alerts.score_alerts import process_score_change
+    await process_score_change(
+        db, customer_id, tenant_id,
+        new_score=result.final_score, new_band=result.score_band,
+        new_status=result.status,
+    )
+
     elapsed = time.perf_counter() - start
     SCORING_REQUESTS.labels(model_target=result.model_target).inc()
     SCORING_LATENCY.observe(elapsed)

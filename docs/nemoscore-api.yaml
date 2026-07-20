@@ -269,6 +269,77 @@ paths:
         "404": { description: No score exists for this customer — score first }
         "409": { description: Latest score is INSUFFICIENT_DATA — keep DPD-based prioritization }
 
+  /api/v1/credit-score/{customerId}/alerts:
+    get:
+      summary: Score-change alert feed, newest first. Added in 1.5.0.
+      description: |
+        Backs the portal client Alerts page. Rows are written on every
+        alert-worthy scoring run — a band change (always alerts) or an
+        absolute point change of at least the customer's threshold
+        (alert_preferences.min_delta, default SCORE_ALERT_MIN_DELTA=10).
+        `notified` records whether the email/SMS notification event was
+        published; the feed row persists either way.
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: Alert feed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScoreAlertsResult" }
+
+  /api/v1/credit-score/{customerId}/alerts/preferences:
+    get:
+      summary: Per-customer alert preferences (absent row = defaults). Added in 1.5.0.
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: Current preferences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertPreferences" }
+    put:
+      summary: Upsert alert preferences. Added in 1.5.0.
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score_change_enabled]
+              properties:
+                score_change_enabled: { type: boolean }
+                min_delta:
+                  type: integer
+                  nullable: true
+                  minimum: 1
+                  maximum: 550
+                  description: Null → service default. Band changes always alert.
+      responses:
+        "200":
+          description: Updated preferences
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertPreferences" }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -611,3 +682,37 @@ components:
         final_score: { type: integer, description: Latest persisted credit score (provenance) }
         pd_probability: { type: number }
         scored_at: { type: string }
+
+    ScoreAlert:
+      type: object
+      required: [alert_id, alert_type, reason, previous_score, new_score, delta, created_at]
+      properties:
+        alert_id: { type: integer, format: int64 }
+        alert_type: { type: string, enum: [SCORE_CHANGE] }
+        reason: { type: string, enum: [BAND_CHANGE, SCORE_DELTA] }
+        previous_score: { type: integer }
+        new_score: { type: integer }
+        delta: { type: integer, description: new - previous (signed) }
+        previous_band: { type: string, nullable: true }
+        new_band: { type: string, nullable: true }
+        notified: { type: boolean, description: Notification event published to the email/SMS pipeline }
+        created_at: { type: string }
+
+    ScoreAlertsResult:
+      type: object
+      required: [customer_id, count, alerts]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        count: { type: integer }
+        alerts:
+          type: array
+          items: { $ref: "#/components/schemas/ScoreAlert" }
+
+    AlertPreferences:
+      type: object
+      required: [customer_id, score_change_enabled, effective_min_delta]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        score_change_enabled: { type: boolean }
+        min_delta: { type: integer, nullable: true, description: Customer override; null → service default }
+        effective_min_delta: { type: integer, description: The threshold actually applied }

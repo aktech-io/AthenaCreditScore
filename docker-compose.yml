@@ -32,6 +32,7 @@ services:
       - ./database/migrations/2026_07_score_event_status.sql:/docker-entrypoint-initdb.d/05_score_event_status.sql
       - ./database/migrations/2026_07_training_labels.sql:/docker-entrypoint-initdb.d/06_training_labels.sql
       - ./database/migrations/2026_07_customer_otp.sql:/docker-entrypoint-initdb.d/07_customer_otp.sql
+      - ./database/migrations/2026_07_score_alerts.sql:/docker-entrypoint-initdb.d/08_score_alerts.sql
     ports:
       - "5432:5432"
     networks:

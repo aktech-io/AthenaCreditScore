@@ -111,21 +111,49 @@ func (s *NotificationService) SendDisputeAcknowledgement(to, disputeID string, c
 	}
 }
 
-func (s *NotificationService) SendScoreUpdateNotification(to string, score interface{}, customerID int64) {
+// ScoreChangeDetail carries the optional change context enriched onto
+// SCORE_UPDATED events by the python alert publisher (alerts/score_alerts.py).
+type ScoreChangeDetail struct {
+	PreviousScore interface{}
+	Delta         int64
+	HasDelta      bool
+	Band          string
+}
+
+func (s *NotificationService) SendScoreUpdateNotification(to string, score interface{}, customerID int64, detail ScoreChangeDetail) {
 	subject := "Your Credit Score Has Been Updated — Athena"
+	change := ""
+	if detail.HasDelta && detail.PreviousScore != nil {
+		direction := "increased"
+		if detail.Delta < 0 {
+			direction = "decreased"
+		}
+		change = fmt.Sprintf("Your score %s by %d points (from %v).\n", direction, abs64(detail.Delta), detail.PreviousScore)
+	}
+	band := ""
+	if detail.Band != "" {
+		band = fmt.Sprintf("Score Band: %s\n", detail.Band)
+	}
 	body := fmt.Sprintf(
 		"Dear Valued Customer,\n\n"+
 			"Your Athena Credit Score has been updated.\n\n"+
-			"New Score: %v / 850\n\n"+
+			"New Score: %v / 850\n%s%s\n"+
 			"Log in to the Athena Customer Portal to view your full credit report "+
 			"and understand what factors influenced your score.\n\n"+
 			"Regards,\n"+
 			"Athena Credit Score Team\n"+
 			"support@athena.co.ke",
-		score)
+		score, band, change)
 	if err := s.SendEmail("scoring-service", to, subject, body); err != nil {
 		log.Error().Err(err).Str("to", to).Msg("failed to send score update notification")
 	}
+}
+
+func abs64(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func (s *NotificationService) SendConsentGrantedNotification(to string, partnerID interface{}, customerID int64) {
