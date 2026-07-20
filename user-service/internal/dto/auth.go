@@ -4,6 +4,8 @@ package dto
 type AuthRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	// TotpCode is required (and validated) only for admins with TOTP enrolled.
+	TotpCode string `json:"totpCode"`
 }
 
 // AuthResponse is the login/register response.

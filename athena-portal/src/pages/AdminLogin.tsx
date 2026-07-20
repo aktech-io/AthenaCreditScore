@@ -17,21 +17,30 @@ export default function AdminLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpRequired, setTotpRequired] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await adminLogin(username, password);
+      const res = await adminLogin(username, password, totpCode || undefined);
       login(res.token, res.roles);
       navigate("/admin");
     } catch (err: unknown) {
-      toast({
-        variant: "destructive",
-        title: "Login failed",
-        description: err instanceof Error ? err.message : "Invalid credentials",
-      });
+      const message = err instanceof Error ? err.message : "Invalid credentials";
+      // Backend signals {"totpRequired": true} when the account has 2FA enrolled.
+      if (message.includes("totpRequired") || message.includes("TOTP code required")) {
+        setTotpRequired(true);
+        toast({ title: "Two-factor authentication", description: "Enter the 6-digit code from your authenticator app." });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Login failed",
+          description: message.includes("TOTP") ? "Invalid authenticator code" : "Invalid credentials",
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -140,6 +149,20 @@ export default function AdminLogin() {
                     </Button>
                   </div>
                 </div>
+                {totpRequired && (
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-totp">Authenticator code</Label>
+                    <Input
+                      id="admin-totp"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      placeholder="123456"
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
+                    />
+                  </div>
+                )}
                 <Button type="submit" className="w-full shadow-lg shadow-primary/20" disabled={loading}>
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Sign In to Admin Portal

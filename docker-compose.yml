@@ -33,6 +33,9 @@ services:
       - ./database/migrations/2026_07_training_labels.sql:/docker-entrypoint-initdb.d/06_training_labels.sql
       - ./database/migrations/2026_07_customer_otp.sql:/docker-entrypoint-initdb.d/07_customer_otp.sql
       - ./database/migrations/2026_07_score_alerts.sql:/docker-entrypoint-initdb.d/08_score_alerts.sql
+      - ./database/migrations/2026_07_bank_ingestion.sql:/docker-entrypoint-initdb.d/09_bank_ingestion.sql
+      - ./database/migrations/2026_07_admin_totp.sql:/docker-entrypoint-initdb.d/10_admin_totp.sql
+      - ./database/migrations/2026_07_privacy_erasure.sql:/docker-entrypoint-initdb.d/11_privacy_erasure.sql
     ports:
       - "5432:5432"
     networks:
@@ -272,7 +275,7 @@ services:
       MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-NemoScorer}
       # Service-to-service keys (comma-separated). LMS ai-scoring sends one of these.
       SERVICE_API_KEYS: ${SERVICE_API_KEYS:-dev-key}
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_PROVIDER: ${LLM_PROVIDER:-local}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_BASE_URL: ${LLM_BASE_URL}

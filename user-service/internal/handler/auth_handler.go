@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	apierrors "github.com/athena/pkg/errors"
 	"github.com/athena/pkg/jwt"
@@ -70,6 +71,10 @@ func (h *AuthHandler) AdminLogin(c *gin.Context) {
 
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)); err != nil {
 		apierrors.Unauthorized(c, "Invalid username or password")
+		return
+	}
+
+	if !h.checkAdminTotp(c, admin.TotpSecret, req.TotpCode, req.Username) {
 		return
 	}
 
@@ -264,6 +269,9 @@ func (h *AuthHandler) PortalLogin(c *gin.Context) {
 	admin, err := h.adminUserRepo.FindByUsername(req.Username)
 	if err == nil {
 		if bcryptErr := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password)); bcryptErr == nil {
+			if !h.checkAdminTotp(c, admin.TotpSecret, req.TotpCode, req.Username) {
+				return
+			}
 			roles := []string{admin.Role}
 			primaryRole := admin.Role
 			if primaryRole == "" {
@@ -296,4 +304,24 @@ func (h *AuthHandler) PortalLogin(c *gin.Context) {
 	// they sign in with a one-time code via /api/auth/customer/request-otp.
 	log.Warn().Str("username", req.Username).Msg("Portal login failed")
 	apierrors.Unauthorized(c, "Invalid username or password")
+}
+
+// checkAdminTotp enforces the second factor for admins with TOTP enrolled.
+// Writes the error response and returns false when login must not proceed.
+// totpRequired=true tells the portal to prompt for a code and retry.
+func (h *AuthHandler) checkAdminTotp(c *gin.Context, secret, code, username string) bool {
+	if secret == "" {
+		return true
+	}
+	if code == "" {
+		log.Warn().Str("username", username).Msg("Admin login missing TOTP code")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "TOTP code required", "totpRequired": true})
+		return false
+	}
+	if !service.ValidateTOTP(secret, code, time.Now()) {
+		log.Warn().Str("username", username).Msg("Admin login invalid TOTP code")
+		apierrors.Unauthorized(c, "Invalid TOTP code")
+		return false
+	}
+	return true
 }

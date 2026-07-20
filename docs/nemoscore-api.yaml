@@ -115,6 +115,78 @@ paths:
         "413": { description: File larger than 10 MB }
         "422": { description: Not a parseable M-Pesa statement }
 
+  /api/v1/credit-score/statements/bank:
+    post:
+      summary: Upload a consumer-permissioned SME bank statement (CSV or PDF). Added in 1.5.0.
+      description: |
+        Generic Kenyan bank-statement parser (KCB/Equity/Co-op/Absa/NCBA export
+        shapes): header-mapped date/description columns, separate debit+credit
+        or single signed amount, balance, optional reference. Rows are
+        SME-categorized (SALES_INCOME, SUPPLIER_PAYMENT, PAYROLL, TAX, ...),
+        deduped per row by a deterministic row_hash (banks lack universal
+        receipt numbers) and per file by SHA-256, then projected into the
+        generic transactions table (channel BANK) and rolled into the
+        customer's lgbm_features v3 bank_* cash-flow features. Same
+        permissions as the M-Pesa upload: customers their own only;
+        ADMIN/ANALYST/SERVICE any. Fails loudly — unparseable/empty is 422.
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, customer_id]
+              properties:
+                file: { type: string, format: binary }
+                customer_id: { type: integer, format: int64 }
+                bank_name: { type: string, description: Free-text label, stored for provenance }
+                pdf_password: { type: string }
+      responses:
+        "200":
+          description: Ingest summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BankStatementUploadResult" }
+        "409": { description: Identical file already ingested }
+        "413": { description: File larger than 10 MB }
+        "422": { description: Not a parseable bank statement }
+
+  /api/v1/credit-score/{customerId}/erasure:
+    post:
+      summary: DPA 2019 right-to-erasure execution. ADMIN/SERVICE only. Added in 1.5.0.
+      description: |
+        Irreversibly erases/pseudonymizes the customer's personal data in the
+        scoring database: PII columns tombstoned, raw statement rows and
+        feature vectors deleted, free-text cleared from derived rows. Numeric
+        credit-decision records (score/PD/reason codes) are retained under the
+        documented lawful-retention basis — see docs/compliance/dpia.md §4.
+        Every execution is recorded in erasure_log. The body must echo the
+        literal confirmation string "ERASE {customerId}".
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm:
+                  type: string
+                  description: 'Must be exactly "ERASE {customerId}"'
+      responses:
+        "200":
+          description: Erasure summary (tables touched, rows affected)
+        "403": { description: Caller lacks ADMIN/SERVICE role }
+        "404": { description: Customer not found }
+        "422": { description: Confirmation string mismatch }
+
   /api/v1/credit-score/{customerId}/pricing:
     get:
       summary: Risk-based pricing from the latest score + PD. Added in 1.4.0.
@@ -716,3 +788,21 @@ components:
         score_change_enabled: { type: boolean }
         min_delta: { type: integer, nullable: true, description: Customer override; null → service default }
         effective_min_delta: { type: integer, description: The threshold actually applied }
+
+    BankStatementUploadResult:
+      type: object
+      required: [statement_id, customer_id, source_format, transactions_ingested, duplicates_skipped]
+      properties:
+        statement_id: { type: integer, format: int64 }
+        customer_id: { type: integer, format: int64 }
+        bank_name: { type: string, nullable: true }
+        source_format: { type: string, enum: [CSV, PDF] }
+        period_start: { type: string, nullable: true }
+        period_end: { type: string, nullable: true }
+        transactions_ingested: { type: integer }
+        duplicates_skipped: { type: integer }
+        category_totals:
+          type: object
+          additionalProperties: { type: number }
+          description: KES totals per SME category (SALES_INCOME, SUPPLIER_PAYMENT, PAYROLL, TAX, ...)
+        features_recomputed: { type: boolean }

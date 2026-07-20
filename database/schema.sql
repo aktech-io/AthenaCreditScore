@@ -90,6 +90,42 @@ CREATE TABLE mpesa_transactions (
 );
 CREATE INDEX idx_mpesa_txn_customer_time ON mpesa_transactions(customer_id, txn_time);
 
+-- Consumer-permissioned SME bank statement uploads (NemoScore Phase 2).
+-- Raw parsed rows live here for provenance + row_hash dedupe (banks lack
+-- universal receipt numbers); each row is also projected into `transactions`
+-- (channel = 'BANK') for the base scorer.
+CREATE TABLE bank_statements (
+    statement_id    BIGSERIAL PRIMARY KEY,
+    customer_id     BIGINT NOT NULL REFERENCES customers(customer_id),
+    bank_name       VARCHAR(100),
+    source_format   VARCHAR(10) NOT NULL CHECK (source_format IN ('CSV', 'PDF')),
+    file_sha256     VARCHAR(64) NOT NULL,
+    period_start    DATE,
+    period_end      DATE,
+    n_transactions  INTEGER NOT NULL DEFAULT 0,
+    n_duplicates    INTEGER NOT NULL DEFAULT 0,
+    tenant_id       VARCHAR(50) NOT NULL DEFAULT 'nemo',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (customer_id, file_sha256)
+);
+
+CREATE TABLE bank_transactions (
+    txn_id          BIGSERIAL PRIMARY KEY,
+    statement_id    BIGINT NOT NULL REFERENCES bank_statements(statement_id) ON DELETE CASCADE,
+    customer_id     BIGINT NOT NULL REFERENCES customers(customer_id),
+    row_hash        VARCHAR(64) NOT NULL,
+    txn_time        TIMESTAMPTZ NOT NULL,
+    details         TEXT NOT NULL,
+    category        VARCHAR(30) NOT NULL,
+    direction       VARCHAR(3) NOT NULL CHECK (direction IN ('IN', 'OUT')),
+    amount          NUMERIC(14,2) NOT NULL CHECK (amount >= 0),
+    balance         NUMERIC(14,2),
+    reference       VARCHAR(100),
+    tenant_id       VARCHAR(50) NOT NULL DEFAULT 'nemo',
+    UNIQUE (customer_id, row_hash)
+);
+CREATE INDEX idx_bank_txn_customer_time ON bank_transactions(customer_id, txn_time);
+
 CREATE TABLE crb_reports (
     report_id           BIGSERIAL PRIMARY KEY,
     customer_id         BIGINT NOT NULL REFERENCES customers(customer_id),
@@ -275,6 +311,7 @@ CREATE TABLE admin_users (
     email           VARCHAR(150),
     role            VARCHAR(30) NOT NULL CHECK (role IN ('ADMIN','ANALYST','VIEWER','CREDIT_RISK')),
     totp_secret     VARCHAR(100),
+    totp_pending_secret VARCHAR(100),   -- enrollment in progress (confirmed via /totp/enable)
     is_active       BOOLEAN DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -302,6 +339,17 @@ CREATE TABLE alert_preferences (
     score_change_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     min_delta            INTEGER,                    -- NULL -> service default (SCORE_ALERT_MIN_DELTA)
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- DPA 2019 right-to-erasure audit trail (see api/privacy.py).
+-- Mirrored in migrations/2026_07_privacy_erasure.sql for existing DBs.
+CREATE TABLE erasure_log (
+    erasure_id      BIGSERIAL PRIMARY KEY,
+    customer_id     BIGINT NOT NULL,
+    tenant_id       VARCHAR(64) NOT NULL DEFAULT 'nemo',
+    requested_by    VARCHAR(100) NOT NULL,   -- JWT sub / 'service'
+    tables_touched  JSONB NOT NULL,          -- {"table": rows_affected, ...}
+    erased_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Notification config (reused from notification-service pattern)

@@ -2,7 +2,12 @@ package handler
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -43,6 +48,7 @@ func newAuthRig(t *testing.T) *authRig {
 		first_name TEXT, last_name TEXT, email TEXT,
 		role TEXT NOT NULL,
 		totp_secret TEXT,
+		totp_pending_secret TEXT,
 		is_active BOOLEAN NOT NULL DEFAULT 1)`).Error; err != nil {
 		t.Fatalf("create admin_users: %v", err)
 	}
@@ -394,6 +400,89 @@ func TestPortalLogin(t *testing.T) {
 		w := postJSON(r, "/api/auth/login", map[string]string{"username": "nobody@nowhere", "password": "x"})
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", w.Code)
+		}
+	})
+}
+
+// totpCodeAt regenerates a live TOTP code for tests (RFC 6238, SHA-1,
+// 6 digits, 30s period) — mirrors the service implementation.
+func totpCodeAt(secret string, at time.Time) string {
+	key, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	counter := uint64(at.Unix()) / 30
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], counter)
+	mac := hmac.New(sha1.New, key)
+	mac.Write(buf[:])
+	sum := mac.Sum(nil)
+	offset := sum[len(sum)-1] & 0x0f
+	code := (binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff) % 1_000_000
+	return fmt.Sprintf("%06d", code)
+}
+
+func TestAdminLoginTotpEnforced(t *testing.T) {
+	rig := newAuthRig(t)
+
+	secret, err := service.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatalf("generate secret: %v", err)
+	}
+	hash, _ := bcrypt.GenerateFromPassword([]byte("mfa-pass"), bcrypt.MinCost)
+	if err := rig.db.Exec(
+		"INSERT INTO admin_users (username, password_hash, role, totp_secret) VALUES (?,?,?,?)",
+		"mfa-admin", string(hash), "ADMIN", secret,
+	).Error; err != nil {
+		t.Fatalf("seed mfa admin: %v", err)
+	}
+
+	t.Run("password alone is rejected with totpRequired", func(t *testing.T) {
+		w := postJSON(rig.engine, "/api/auth/admin/login",
+			map[string]string{"username": "mfa-admin", "password": "mfa-pass"})
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (body=%s)", w.Code, w.Body.String())
+		}
+		var resp map[string]interface{}
+		_ = json.Unmarshal(w.Body.Bytes(), &resp)
+		if resp["totpRequired"] != true {
+			t.Fatalf("expected totpRequired=true, body=%s", w.Body.String())
+		}
+	})
+
+	t.Run("wrong code is rejected", func(t *testing.T) {
+		w := postJSON(rig.engine, "/api/auth/admin/login",
+			map[string]string{"username": "mfa-admin", "password": "mfa-pass", "totpCode": "000000"})
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", w.Code)
+		}
+	})
+
+	t.Run("valid code logs in", func(t *testing.T) {
+		w := postJSON(rig.engine, "/api/auth/admin/login",
+			map[string]string{"username": "mfa-admin", "password": "mfa-pass",
+				"totpCode": totpCodeAt(secret, time.Now())})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("portal login enforces the same second factor", func(t *testing.T) {
+		w := postJSON(rig.engine, "/api/auth/login",
+			map[string]string{"username": "mfa-admin", "password": "mfa-pass"})
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", w.Code)
+		}
+		w = postJSON(rig.engine, "/api/auth/login",
+			map[string]string{"username": "mfa-admin", "password": "mfa-pass",
+				"totpCode": totpCodeAt(secret, time.Now())})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("admins without TOTP are unaffected", func(t *testing.T) {
+		w := postJSON(rig.engine, "/api/auth/admin/login",
+			map[string]string{"username": "admin", "password": "admin123"})
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body=%s)", w.Code, w.Body.String())
 		}
 	})
 }

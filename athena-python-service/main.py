@@ -17,6 +17,7 @@ from api.decisioning import router as decisioning_router
 from api.simulator import router as simulator_router
 from api.collections import router as collections_router
 from api.alerts import router as alerts_router
+from api.privacy import router as privacy_router
 from monitoring.metrics import metrics_router
 from db.database import init_db
 
@@ -64,6 +65,7 @@ app.include_router(decisioning_router, prefix="/api/v1", tags=["Decisioning"])
 app.include_router(simulator_router, prefix="/api/v1", tags=["Simulator"])
 app.include_router(collections_router, prefix="/api/v1", tags=["Collections"])
 app.include_router(alerts_router, prefix="/api/v1", tags=["Alerts"])
+app.include_router(privacy_router, prefix="/api/v1", tags=["Privacy"])
 app.include_router(metrics_router, tags=["Metrics"])
 
 

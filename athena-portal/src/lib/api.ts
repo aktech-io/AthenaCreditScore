@@ -56,10 +56,10 @@ export interface AdminLoginResponse {
   roles: string[];
 }
 
-export async function adminLogin(username: string, password: string): Promise<AdminLoginResponse> {
+export async function adminLogin(username: string, password: string, totpCode?: string): Promise<AdminLoginResponse> {
   return apiFetch<AdminLoginResponse>("/api/auth/admin/login", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(totpCode ? { username, password, totpCode } : { username, password }),
   });
 }
 

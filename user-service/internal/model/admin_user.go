@@ -11,6 +11,10 @@ type AdminUser struct {
 	Email        string `json:"email"`
 	Role         string `gorm:"not null" json:"role"`
 	TotpSecret   string `gorm:"column:totp_secret" json:"-"`
+	// TotpPendingSecret holds a generated-but-unconfirmed secret during
+	// enrollment; it becomes TotpSecret once the admin proves possession
+	// by submitting a valid code.
+	TotpPendingSecret string `gorm:"column:totp_pending_secret" json:"-"`
 	Active       bool   `gorm:"column:is_active;not null;default:true" json:"active"`
 }
 

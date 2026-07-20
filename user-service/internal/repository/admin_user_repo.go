@@ -28,3 +28,12 @@ func (r *AdminUserRepository) FindByID(id int64) (*model.AdminUser, error) {
 	}
 	return &user, nil
 }
+
+// UpdateTotpSecrets persists the confirmed and pending TOTP secrets.
+// Empty strings clear the columns (Select forces zero-value updates).
+func (r *AdminUserRepository) UpdateTotpSecrets(id int64, totpSecret, pendingSecret string) error {
+	return r.db.Model(&model.AdminUser{}).
+		Where("id = ?", id).
+		Select("totp_secret", "totp_pending_secret").
+		Updates(model.AdminUser{TotpSecret: totpSecret, TotpPendingSecret: pendingSecret}).Error
+}

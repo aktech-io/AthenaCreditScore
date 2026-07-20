@@ -73,6 +73,7 @@ func main() {
 	roleHandler := handler.NewRoleHandler(roleRepo)
 	policyHandler := handler.NewPasswordPolicyHandler(policyService)
 	invitationHandler := handler.NewInvitationHandler(invitationRepo, userRepo)
+	totpHandler := handler.NewTotpHandler(adminUserRepo)
 
 	// Gin engine
 	r := gin.New()
@@ -97,6 +98,7 @@ func main() {
 	groupHandler.RegisterRoutes(adminGroup.Group("/groups"))
 	roleHandler.RegisterRoutes(adminGroup.Group("/roles"))
 	policyHandler.RegisterRoutes(adminGroup.Group("/password-policy"))
+	totpHandler.RegisterRoutes(adminGroup.Group("/totp"))
 
 	log.Info().Str("port", cfg.Port).Msg("user-service starting")
 	if err := r.Run(":" + cfg.Port); err != nil {

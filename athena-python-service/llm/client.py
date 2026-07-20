@@ -13,8 +13,12 @@ class LLMClient:
     """Dual-mode LLM client: OpenAI API or any OpenAI-compatible local endpoint (Ollama/vLLM)."""
 
     def __init__(self):
-        provider = os.getenv("LLM_PROVIDER", "openai")
-        self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+        # Default is LOCAL (DPA 2019 posture): credit-profile prompts contain
+        # personal data and must not leave the environment unless explicitly
+        # opted into a hosted provider via LLM_PROVIDER=openai.
+        provider = os.getenv("LLM_PROVIDER", "local")
+        default_model = "gpt-4o-mini" if provider == "openai" else "qwen2.5-coder:7b"
+        self.model = os.getenv("LLM_MODEL", default_model)
 
         if provider == "openai":
             # A missing key must not crash service startup: the SDK raises on
