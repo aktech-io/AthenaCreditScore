@@ -58,13 +58,104 @@ async def get_latest_score(
     """), {"cid": customer_id})
     r = row.fetchone()
     if not r:
-        raise HTTPException(status_code=404, detail="No score found for customer")
+        # Score-on-miss for service callers only (the LMS sends hashed int64
+        # ids NemoScore has never seen — see docs/nemo/06 integration notes).
+        # The result is honest: with no transactions and no bureau data the
+        # scorer returns status=INSUFFICIENT_DATA, which the LMS maps to
+        # SKIPPED/manual review instead of a hard FAILED on 404.
+        roles: List[str] = claims.get("roles", [])
+        if not any(rl in roles for rl in ("SERVICE", "ADMIN", "ANALYST")):
+            raise HTTPException(status_code=404, detail="No score found for customer")
+        return await _score_on_miss(db, customer_id)
     return ScoreSummaryResponse(
         customer_id=customer_id,
         final_score=r[0], score_band=r[1],
         pd_probability=r[2], scored_at=str(r[3]),
         status=r[4], data_sufficiency=r[5],
         pd_source=r[6], model_version=r[7],
+    )
+
+
+async def _score_on_miss(db: AsyncSession, customer_id: int) -> ScoreSummaryResponse:
+    """First-touch scoring for a customer with no stored score event.
+
+    Creates a placeholder customer row when the id is unknown (LMS hashed ids),
+    scores from whatever data exists (usually none), and persists the event so
+    subsequent GETs are plain reads.
+    """
+    from scoring.hybrid_scorer import compute_hybrid_score
+
+    await db.execute(text("""
+        INSERT INTO customers (customer_id, first_name, last_name)
+        VALUES (:cid, 'EXTERNAL', 'UNREGISTERED')
+        ON CONFLICT (customer_id) DO NOTHING
+    """), {"cid": customer_id})
+
+    tx_rows = await db.execute(text("""
+        SELECT transaction_date, amount, transaction_type, category,
+               description, channel, balance_after
+        FROM transactions WHERE customer_id = :cid
+        ORDER BY transaction_date DESC LIMIT 500
+    """), {"cid": customer_id})
+    transactions = [dict(t._mapping) for t in tx_rows.fetchall()]
+
+    features = None
+    try:
+        from features.pipeline import get_or_compute_features
+        features = await get_or_compute_features(db, customer_id)
+    except Exception:
+        pass  # scorecard fallback covers the no-vector case
+
+    result = await compute_hybrid_score(
+        customer_id=customer_id,
+        customer_name="EXTERNAL UNREGISTERED",
+        transactions=transactions,
+        crb_raw_report=None,
+        features=features,
+    )
+
+    import json as _json
+    inserted = await db.execute(text("""
+        INSERT INTO credit_score_events
+          (customer_id, base_score, crb_contribution, llm_adjustment,
+           pd_probability, final_score, score_band, reasoning,
+           llm_provider, llm_model_name, model_target, reason_codes,
+           status, data_sufficiency, pd_source, model_version)
+        VALUES (:cid, :base, :crb, :llm, :pd, :final, :band, :reasoning,
+                :llm_prov, :llm_mod, :target, CAST(:rcodes AS jsonb),
+                :status, :sufficiency, :pd_source, :model_version)
+        RETURNING scored_at
+    """), {
+        "cid": customer_id,
+        "base": result.base_score,
+        "crb": result.crb_contribution,
+        "llm": result.llm_adjustment,
+        "pd": result.pd_probability,
+        "final": result.final_score,
+        "band": result.score_band,
+        "reasoning": "\n".join(result.reasoning),
+        "llm_prov": result.llm_provider,
+        "llm_mod": result.llm_model,
+        "target": result.model_target,
+        "rcodes": _json.dumps(result.reason_codes),
+        "status": result.status,
+        "sufficiency": result.data_sufficiency,
+        "pd_source": result.pd_source,
+        "model_version": result.model_version,
+    })
+    scored_at = inserted.scalar()
+    await db.commit()
+
+    return ScoreSummaryResponse(
+        customer_id=customer_id,
+        final_score=result.final_score,
+        score_band=result.score_band,
+        pd_probability=result.pd_probability,
+        scored_at=str(scored_at),
+        status=result.status,
+        data_sufficiency=result.data_sufficiency,
+        pd_source=result.pd_source,
+        model_version=result.model_version,
     )
 
 
