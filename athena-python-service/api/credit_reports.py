@@ -167,9 +167,11 @@ async def ingest_credit_report(
         INSERT INTO credit_score_events
           (customer_id, base_score, crb_contribution, llm_adjustment,
            pd_probability, final_score, score_band, reasoning, crb_report_id,
-           llm_provider, llm_model_name, model_target, tenant_id, reason_codes)
+           llm_provider, llm_model_name, model_target, tenant_id, reason_codes,
+           status, data_sufficiency, pd_source, model_version)
         VALUES (:cid, :base, :crb, :llm, :pd, :final, :band, :reasoning,
-                :crb_rid, :llm_prov, :llm_mod, :target, :tenant, CAST(:rcodes AS jsonb))
+                :crb_rid, :llm_prov, :llm_mod, :target, :tenant, CAST(:rcodes AS jsonb),
+                :status, :sufficiency, :pd_source, :model_version)
         RETURNING event_id
     """), {
         "cid": customer_id,
@@ -186,6 +188,10 @@ async def ingest_credit_report(
         "llm_mod": result.llm_model,
         "target": result.model_target,
         "rcodes": json.dumps(result.reason_codes),
+        "status": result.status,
+        "sufficiency": result.data_sufficiency,
+        "pd_source": result.pd_source,
+        "model_version": result.model_version,
     })
     event_id = event_row.scalar()
 

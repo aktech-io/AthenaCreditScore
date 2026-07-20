@@ -41,13 +41,24 @@ class FakeCrb:
 class TestFromShap:
     def test_positive_shap_maps_to_codes_most_severe_first(self):
         contribs = [
-            ("bureau_score", 0.10),
-            ("delinquency_rate_90d", 0.30),
+            ("bureau_score", 0.40),
+            ("delinquency_rate_90d", 1.30),
             ("payment_cv", -0.05),          # protective — must not appear
-            ("open_npa_accounts", 0.20),
+            ("open_npa_accounts", 0.80),
         ]
         codes = [rc["code"] for rc in from_shap(contribs)]
         assert codes == ["NS10", "NS01", "NS03"]
+
+    def test_sub_threshold_shap_noise_is_dropped(self):
+        # Near-zero positive attributions on clean profiles are model noise,
+        # not adverse reasons (they misled clean borrowers before 1.3.0).
+        contribs = [
+            ("bureau_score", 0.10),
+            ("max_delinquency_streak", 0.23),
+            ("delinquency_rate_90d", 0.30),
+        ]
+        codes = [rc["code"] for rc in from_shap(contribs)]
+        assert codes == ["NS10"]
 
     def test_caps_at_top_n(self):
         contribs = [(f, 1.0 - i * 0.1) for i, f in enumerate(FEATURE_TO_CODE)]

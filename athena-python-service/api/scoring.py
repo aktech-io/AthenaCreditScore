@@ -20,8 +20,10 @@ class ScoreSummaryResponse(BaseModel):
     score_band: Optional[str]
     pd_probability: Optional[float]
     scored_at: Optional[str]
-    # A persisted score event is by definition a completed scoring run.
-    status: str = "SCORED"
+    status: str
+    data_sufficiency: str = "FULL"
+    pd_source: Optional[str] = None
+    model_version: Optional[str] = None
 
 
 class FullReportResponse(BaseModel):
@@ -49,7 +51,8 @@ async def get_latest_score(
     """Returns the latest credit score summary for a customer."""
     _check_access(claims, customer_id)
     row = await db.execute(text("""
-        SELECT final_score, score_band, pd_probability, scored_at
+        SELECT final_score, score_band, pd_probability, scored_at,
+               status, data_sufficiency, pd_source, model_version
         FROM credit_score_events WHERE customer_id = :cid
         ORDER BY scored_at DESC LIMIT 1
     """), {"cid": customer_id})
@@ -60,6 +63,8 @@ async def get_latest_score(
         customer_id=customer_id,
         final_score=r[0], score_band=r[1],
         pd_probability=r[2], scored_at=str(r[3]),
+        status=r[4], data_sufficiency=r[5],
+        pd_source=r[6], model_version=r[7],
     )
 
 

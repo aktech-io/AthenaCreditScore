@@ -28,6 +28,32 @@ MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "athena-credit-scorer")
 MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "AthenaScorer")
 
+# Domain monotone constraints: +1 = feature can only push PD up, -1 = only
+# down, 0 = unconstrained (direction genuinely ambiguous). Guards against
+# implausible attributions (e.g. a high bureau score raising PD) that noisy
+# or synthetic labels would otherwise let the trees learn — adverse-action
+# reason codes derive from SHAP, so directions must be defensible.
+MONOTONE_DIRECTIONS = {
+    "avg_loan_spacing_days": -1,
+    "max_delinquency_streak": 1,
+    "delinquency_rate_90d": 1,
+    "payment_cv": 1,
+    "early_repayment_rate": -1,
+    "capital_growth_rate": -1,
+    "profit_margin": -1,
+    "bureau_score": -1,
+    "open_npa_accounts": 1,
+    "mpesa_monthly_inflow_avg": -1,
+    "mpesa_inflow_cv": 1,
+    "mpesa_income_regularity": -1,
+    "mpesa_outflow_inflow_ratio": 1,
+    "mpesa_low_balance_rate": 1,
+    "mpesa_merchant_diversity": -1,
+    "mpesa_betting_ratio": 1,
+    "mpesa_savings_ratio": -1,
+    "mpesa_fuliza_draw_count": 1,
+}
+
 
 def ks_statistic(y_true, y_prob) -> float:
     """Compute Kolmogorov-Smirnov statistic — key metric for credit models."""
@@ -112,6 +138,10 @@ def train_and_register(
         "n_estimators": 500,
         "verbose": -1,
         "class_weight": "balanced",
+        "monotone_constraints": [
+            MONOTONE_DIRECTIONS.get(c, 0) for c in X_train.columns
+        ],
+        "monotone_constraints_method": "advanced",
     }
 
     with mlflow.start_run(run_name=run_name or f"athena-lgbm-{register_as}") as run:

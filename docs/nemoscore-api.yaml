@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 info:
   title: NemoScore Scoring API
-  version: "1.2.0"
+  version: "1.3.0"
   description: |
     Versioned contract for the NemoScore credit scoring engine (part of the
     Nemo neobank platform). This is THE contract: the LMS, portal, and any
@@ -161,6 +161,16 @@ components:
         pd_probability: { type: number, minimum: 0, maximum: 1 }
         scored_at: { type: string }
         status: { $ref: "#/components/schemas/ScoringStatus" }
+        data_sufficiency:
+          type: string
+          enum: [FULL, PARTIAL, INSUFFICIENT]
+          description: Added in 1.3.0. Persisted per event; INSUFFICIENT pairs with status INSUFFICIENT_DATA.
+        pd_source:
+          type: string
+          description: Added in 1.3.0. "lgbm:champion", "lgbm:challenger" or "scorecard" — provenance of the PD that served this event.
+        model_version:
+          type: string
+          description: Added in 1.3.0. MLflow registry version of the PD model, when pd_source is an lgbm target.
 
     ScoreResult:
       type: object

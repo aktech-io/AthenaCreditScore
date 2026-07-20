@@ -56,11 +56,19 @@ athena-portal:5173         React (Lovable) — unified admin + client portal, sh
 
 ## Running the Stack
 
+> **Deployment pattern (July 2026):** docker-compose is the **dev harness only**. Real
+> deployment is **k3s locally + the shared Contabo k3s cluster** (`158.220.112.84`, where
+> the Nemo neobank LMS runs in namespace `lms`) with full CI/CD, following the
+> EthioDigitalRecon `deploy/k8s` pattern (kustomize + GHCR + SSH `kubectl set image`).
+> See `deploy/k8s/` and `.github/workflows/`. Both compose files share the fixed docker
+> network `athena-net` so the LMS overlay can reach Kong (`http://kong:8000`).
+> Host port 80 belongs to Kong — host Apache was stopped/disabled 2026-07-20.
+
 ```bash
 cd /home/adira/AthenaCreditScore
 
-# Start everything
-docker compose up -d
+# Start everything (scoring stack + LMS overlay, one merged project)
+docker compose -f docker-compose.yml -f ../AthenaIntelligentLMS/docker-compose.go.yml up -d
 
 # Check health (Go services use /health, not /actuator/health)
 curl http://localhost:8761/actuator/health   # Eureka (discovery-server, still Java)
@@ -317,6 +325,17 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
   the ML path, scorecard-deficit-derived on the fallback path) — persisted on
   `credit_score_events.reason_codes`, in the contract as of `nemoscore-api.yaml` 1.1.0.
   Scoring tables carry `tenant_id` (default `'nemo'`; ingest honors `X-Tenant-Id`).
+- **July 2026 (scoring honesty + governance, contract 1.3.0):** `credit_score_events` now
+  persists `status`, `data_sufficiency`, `pd_source`, `model_version`
+  (migration `2026_07_score_event_status.sql`) and `GET /api/v1/credit-score/{id}` returns
+  them — previously it fabricated `status=SCORED` even for INSUFFICIENT_DATA runs, breaking
+  fail-closed for the LMS's GET path. Reason codes: SHAP path now ignores attributions below
+  `_MIN_SHAP_ADVERSE=0.25` log-odds (noise on clean profiles is not an adverse reason).
+  `mlops/trainer.py` applies domain **monotone constraints** (`MONOTONE_DIRECTIONS`) so the
+  trees can't learn indefensible directions (e.g. high bureau score raising PD) — on the
+  synthetic seed labels this drops AUC (0.93→0.71) precisely because the inflated AUC came
+  from implausible patterns; real performance arrives with the LMS repayment-label loop.
+  Champion = NemoScorer v3 (constrained, lgbm_features v2 incl. all 13 mpesa_* features).
 - **July 2026 (NemoScore Phase 2 — M-Pesa ingestion):** consumer-permissioned M-Pesa
   statement upload (`POST /api/v1/credit-score/statements/mpesa`, CSV or password-protected
   PDF). Parsed rows land in `mpesa_statements`/`mpesa_transactions` (dedupe: file SHA-256 +

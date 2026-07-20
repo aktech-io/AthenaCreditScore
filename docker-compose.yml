@@ -3,6 +3,7 @@ version: "3.9"
 networks:
   athena-net:
     driver: bridge
+    name: athena-net
 
 volumes:
   postgres_data:
@@ -28,6 +29,7 @@ services:
       - ./database/migrations/2026_07_nemoscore_tenant.sql:/docker-entrypoint-initdb.d/02_nemoscore_tenant.sql
       - ./database/migrations/2026_07_reason_codes.sql:/docker-entrypoint-initdb.d/03_reason_codes.sql
       - ./database/migrations/2026_07_mpesa_ingestion.sql:/docker-entrypoint-initdb.d/04_mpesa_ingestion.sql
+      - ./database/migrations/2026_07_score_event_status.sql:/docker-entrypoint-initdb.d/05_score_event_status.sql
     ports:
       - "5432:5432"
     networks:

@@ -76,6 +76,11 @@ _DIMENSIONS: List[Tuple[str, str, float]] = [
 # a near-perfect dimension is not an adverse reason.
 _MIN_DEFICIT_FRACTION = 0.25
 
+# SHAP path: ignore contributions below this log-odds magnitude — tiny positive
+# attributions on otherwise-clean profiles are model noise, and surfacing them
+# as adverse-action reasons misleads the borrower.
+_MIN_SHAP_ADVERSE = 0.25
+
 
 def _entry(code: str) -> Dict[str, str]:
     return {"code": code, "description": REASON_CODES[code]}
@@ -88,7 +93,7 @@ def from_shap(shap_contributions: List[Tuple[str, float]]) -> List[Dict[str, str
     features can map to one code), keeps most-severe-first ordering.
     """
     adverse = sorted(
-        (fs for fs in shap_contributions if fs[1] > 0),
+        (fs for fs in shap_contributions if fs[1] >= _MIN_SHAP_ADVERSE),
         key=lambda fs: -fs[1],
     )
     seen: set[str] = set()
