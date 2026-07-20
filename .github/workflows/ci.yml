@@ -37,4 +37,4 @@ jobs:
         run: pip install -r athena-python-service/requirements.txt pytest
       - name: Run pytest
         working-directory: athena-python-service
-        run: pytest tests -v --tb=short
+        run: python -m pytest tests -v --tb=short
