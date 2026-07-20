@@ -297,6 +297,7 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 - Kong JWT plugin has been removed — services handle JWT validation internally.
 
 ### LLM Mode
+- **Default is `LLM_PROVIDER=local`** (Phase 5 / DPA posture — PII never leaves the environment). Hosted OpenAI is an explicit opt-in.
 - `LLM_PROVIDER=openai` → uses `OPENAI_API_KEY` and `LLM_MODEL` (default: `gpt-4o-mini`)
 - `LLM_PROVIDER=local` → points `base_url` to Ollama or vLLM endpoint, zero code change
   - For Ollama: set `LLM_BASE_URL=http://<host>:11434/v1` and `LLM_MODEL=qwen2.5-coder:7b`
@@ -355,7 +356,7 @@ PUT  /api/v1/crb/routing-config?challengerPct=0.2 → update split at runtime
 
 ## Test Coverage
 
-### Python (pytest) — 203 tests
+### Python (pytest) — 290 tests
 ```bash
 cd athena-python-service
 pip install -r requirements.txt
@@ -459,19 +460,21 @@ All 5 microservices converted from Java (Spring Boot) to Go (Gin + GORM):
 > affordability, simulator, reason codes), Go test port, customer-auth bypass fix.
 
 ### Remaining roadmap
-- [ ] Score-change alerts wired end-to-end (Phase 4)
-- [ ] Collections-priority score for the LMS collections-service (Phase 4)
-- [ ] Bank-statement ingestion for SMEs + feature expansion (Phase 2 remnant)
-- [ ] Phase 5 compliance & security pack (DPA deletion flow, DPIA, consent granularity,
-      `LLM_PROVIDER=local` default, CBK DCP artifacts, secrets mgmt, admin TOTP enforcement,
-      append-only audit log)
+- [x] Score-change alerts wired end-to-end (Phase 4) ✅ contract 1.5.0
+- [x] Collections-priority score for the LMS collections-service (Phase 4) ✅ (LMS side wired, fail-closed)
+- [x] Bank-statement ingestion for SMEs + lgbm_features v3 (Phase 2 remnant) ✅
+- [x] Phase 5 first tranche ✅ — admin TOTP enforced, DPA erasure flow + erasure_log,
+      `LLM_PROVIDER=local` default, DPIA + CBK DCP docs (`docs/compliance/`)
+- [ ] Phase 5 backlog: secrets mgmt (env→vault), per-consumer API keys, RS256 or mTLS,
+      append-only (hash-chained) audit log, portal TOTP enrollment UI, portability export
 - [ ] Contract-test package against `docs/nemoscore-api.yaml`
 
 ### Deploy follow-ups (Contabo)
 - [ ] Configure SMS in notification-service **before** deploying the auth fix (customers
       can't receive OTPs otherwise; `OTP_DEV_LOG=true` is dev-only)
-- [ ] Apply `2026_07_training_labels.sql` + `2026_07_customer_otp.sql` to live nemoscore
-      postgres by hand (initdb won't rerun) and copy into `deploy/k8s/postgres-init/`
+- [ ] Apply migrations to live nemoscore postgres by hand (initdb won't rerun):
+      `training_labels`, `customer_otp`, `score_alerts`, `bank_ingestion`, `admin_totp`,
+      `privacy_erasure` (all mirrored in `deploy/k8s/postgres-init/` 09–15 for fresh installs)
 - [ ] Rotate `ghcr-pull` to a read:packages-only PAT; change prod admin password
 - [ ] Train + promote a model on Contabo MLflow (prod still `pd_source=scorecard`)
 
