@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 info:
   title: NemoScore Scoring API
-  version: "1.4.0"
+  version: "1.5.0"
   description: |
     Versioned contract for the NemoScore credit scoring engine (part of the
     Nemo neobank platform). This is THE contract: the LMS, portal, and any
@@ -230,6 +230,44 @@ paths:
               schema: { $ref: "#/components/schemas/SimulateResult" }
         "422": { description: Unknown/no-op deltas, or no data at all to simulate from }
         "502": { description: Model inference failed on the simulated vector }
+
+  /api/v1/credit-score/{customerId}/collections-priority:
+    post:
+      summary: Collections-priority score for a delinquent case. Added in 1.5.0.
+      description: |
+        Called by the LMS collections-service when a case opens or its DPD
+        changes. The caller supplies the operational case state only the LMS
+        knows (DPD, outstanding balance, promise-to-pay history); NemoScore
+        contributes the borrower's PD and cash-flow ability-to-pay. The
+        returned priority_band maps 1:1 onto the LMS CasePriority enum.
+
+        Components (0-100 total): risk 0-30 (PD), exposure 0-30 (saturating
+        in outstanding), urgency 0-25 (DPD curve peaking at 61-90 —
+        roll-rate-prevention window), behaviour 0-10 (broken vs kept PTPs),
+        ability 0-5 (M-Pesa cash-flow). Cutoffs and exposure reference are
+        env-tunable server-side (COLLECTIONS_CUTOFF_*, COLLECTIONS_EXPOSURE_REF).
+
+        Fail-loud: on 404/409 the LMS MUST keep its existing DPD-threshold
+        prioritization (fail-closed to current behaviour, never a mock score).
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CollectionsPriorityRequest" }
+      responses:
+        "200":
+          description: Priority score, band, components, and recommended action
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CollectionsPriorityResult" }
+        "404": { description: No score exists for this customer — score first }
+        "409": { description: Latest score is INSUFFICIENT_DATA — keep DPD-based prioritization }
 
 components:
   securitySchemes:
@@ -526,3 +564,50 @@ components:
           items: { type: string }
           description: Deltas the scorecard fallback cannot express (empty on the ML path).
         read_only: { type: boolean }
+
+    CollectionsPriorityRequest:
+      type: object
+      required: [dpd, outstanding_amount]
+      properties:
+        dpd: { type: integer, minimum: 0, description: Current days past due }
+        outstanding_amount: { type: number, minimum: 0, description: Outstanding balance, KES }
+        broken_ptp_count: { type: integer, minimum: 0, default: 0 }
+        fulfilled_ptp_count: { type: integer, minimum: 0, default: 0 }
+        product_type: { type: string, nullable: true, description: Echoed back; not scored }
+
+    CollectionsPriorityResult:
+      type: object
+      description: Added in 1.5.0. priority_band maps 1:1 onto the LMS CasePriority enum.
+      required: [customer_id, priority_score, priority_band, components,
+                 ability_to_pay, recommended_action, final_score, pd_probability]
+      properties:
+        customer_id: { type: integer, format: int64 }
+        currency: { type: string, enum: [KES] }
+        product_type: { type: string, nullable: true }
+        dpd: { type: integer }
+        outstanding_amount: { type: number }
+        priority_score: { type: number, minimum: 0, maximum: 100 }
+        priority_band:
+          type: string
+          enum: [LOW, NORMAL, HIGH, CRITICAL]
+        components:
+          type: object
+          description: Additive breakdown; values sum to priority_score.
+          properties:
+            risk: { type: number }
+            exposure: { type: number }
+            urgency: { type: number }
+            behaviour: { type: number }
+            ability: { type: number }
+        ability_to_pay:
+          type: string
+          enum: [STRONG, WEAK, UNKNOWN]
+          description: Cash-flow ability from M-Pesa features; UNKNOWN without statement data.
+        recommended_action:
+          type: string
+          enum: [NONE, SELF_CURE_WATCH, SOFT_REMINDER, PRIORITY_CALL,
+                 RESTRUCTURE_OFFER, FIELD_VISIT, LEGAL_REVIEW]
+          description: Default next-best-action; the LMS strategy engine may override.
+        final_score: { type: integer, description: Latest persisted credit score (provenance) }
+        pd_probability: { type: number }
+        scored_at: { type: string }
