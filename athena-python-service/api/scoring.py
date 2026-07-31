@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -113,6 +114,18 @@ async def _score_on_miss(db: AsyncSession, customer_id: int) -> ScoreSummaryResp
         crb_raw_report=None,
         features=features,
     )
+
+    # Thin-file demo mode (docs/nemo/06 §4): the LMS sends hashed ids with no
+    # shared customer registry, so a first-touch external customer can never
+    # have data here and an honest INSUFFICIENT_DATA parks every LMS request
+    # in manual review. Demo deployments instead serve the scorecard floor as
+    # a usable PARTIAL result. Keep OFF wherever real credit decisions are made.
+    if (result.status == "INSUFFICIENT_DATA"
+            and os.getenv("NEMOSCORE_THIN_FILE_DEMO", "false").lower() == "true"):
+        result.status = "SCORED"
+        result.data_sufficiency = "PARTIAL"
+        result.reasoning.append(
+            "Thin-file demo mode: scorecard floor served for unregistered external customer")
 
     import json as _json
     inserted = await db.execute(text("""

@@ -23,6 +23,10 @@ data:
   MEDIA_SERVICE_URL: "http://media-service:8083"
   SCORING_ENGINE_URL: "http://athena-python-service:8001"
   MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  # ── LMS integration (docs/nemo/06 §4) ──
+  # Serve the scorecard floor as SCORED/PARTIAL for first-touch external
+  # (LMS-hashed) customer ids instead of INSUFFICIENT_DATA. Demo box only.
+  NEMOSCORE_THIN_FILE_DEMO: "true"
   # ── NemoScore model registry ──
   MLFLOW_EXPERIMENT_NAME: "nemoscore-scorer"
   MLFLOW_MODEL_NAME: "NemoScorer"
