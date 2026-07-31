@@ -91,6 +91,9 @@ async def _score_on_miss(db: AsyncSession, customer_id: int) -> ScoreSummaryResp
         VALUES (:cid, 'EXTERNAL', 'UNREGISTERED')
         ON CONFLICT (customer_id) DO NOTHING
     """), {"cid": customer_id})
+    # Commit now: if the feature pipeline below fails we roll the session back,
+    # and the placeholder row must survive for the score-event insert.
+    await db.commit()
 
     tx_rows = await db.execute(text("""
         SELECT transaction_date, amount, transaction_type, category,
@@ -105,7 +108,10 @@ async def _score_on_miss(db: AsyncSession, customer_id: int) -> ScoreSummaryResp
         from features.pipeline import get_or_compute_features
         features = await get_or_compute_features(db, customer_id)
     except Exception:
-        pass  # scorecard fallback covers the no-vector case
+        # Scorecard fallback covers the no-vector case — but a failed feature
+        # query (e.g. schema drift) leaves the session transaction aborted,
+        # which would 500 the score-event INSERT below. Clear it.
+        await db.rollback()
 
     result = await compute_hybrid_score(
         customer_id=customer_id,
